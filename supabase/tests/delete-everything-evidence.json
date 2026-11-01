@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "ranAt": "2026-10-29T20:21:05.587Z",
+  "assertions": {
+    "partial_failure_reports_failure": true,
+    "partial_failure_leaves_rows": true,
+    "partial_failure_leaves_objects": true,
+    "retry_completes": true,
+    "prefix_verified_empty": true,
+    "rows_removed": true,
+    "objects_removed": true,
+    "account_survives": true,
+    "sign_in_again": true,
+    "other_account_untouched": true,
+    "cascade_removes_cards": true,
+    "repeat_is_safe": true,
+    "cleanup_left_no_objects": true
+  }
+}

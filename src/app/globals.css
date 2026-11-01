@@ -1,26 +1,114 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/**
+ * SomaMap design foundation - Phase A of the approved UX and visual-design direction
+ * (BUILD-REPORT.md Entry 37, sections 6.2 to 6.5).
+ *
+ * What this file is: the one place the product's colour, type, spacing, radius and border
+ * decisions live, as tokens rather than per-component class strings. Phase A establishes the
+ * tokens and adopts them where the audit found a measurable defect (the body map, the two
+ * expressive type moments, the page itself); the rest of the app keeps its existing classes and
+ * is adopted in a later phase, so nothing here is a half-applied redesign.
+ *
+ * What this file is not: it carries no product logic. The region label still comes from the fixed
+ * geometric map in src/lib/regions.ts, never from a model, and no token here names, describes or
+ * interprets a sensation.
+ *
+ * The measured ratios in the comments are asserted by src/lib/designTokens.test.ts, which reads
+ * this file and recomputes them from these exact values - so a colour cannot drift below its
+ * requirement without failing a test.
+ *
+ * Light values are the ones in the @theme block below; the dark values override the same variable
+ * names inside the prefers-color-scheme block, which is why every token-based utility (bg-paper,
+ * text-ink, ...) switches mode on its own with no dark: variant needed.
+ */
 
+/* Fonts: the families next/font loads in src/app/layout.tsx. `inline` keeps the utilities
+   pointing at the loaded font variables. */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-newsreader), ui-serif, Georgia, Cambria, serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+
+  /* Compatibility aliases: the scaffold landing page at / still uses bg-foreground and
+     text-background. They now resolve to the same tokens as everything else, so the palette is
+     single-sourced. The landing page itself is out of scope for this phase. */
+  --color-background: var(--color-paper);
+  --color-foreground: var(--color-ink);
 }
 
+@theme {
+  /* Type scale - one scale, six steps (audit section 6.3). */
+  --text-meta: 0.75rem; /* 12px - step labels, the fixed line, hints */
+  --text-meta--line-height: 1.5;
+  --text-label: 0.875rem; /* 14px - field labels, buttons */
+  --text-label--line-height: 1.5;
+  --text-body: 1rem; /* 16px - instructions, notes */
+  --text-body--line-height: 1.6;
+  --text-lead: 1.125rem; /* 18px - card field values */
+  --text-lead--line-height: 1.5;
+  --text-question: 1.5rem; /* 24px - the interview question */
+  --text-question--line-height: 1.3;
+  --text-display: 2.125rem; /* 34px - the user's own sentence, when it is the hero */
+  --text-display--line-height: 1.2;
+
+  /* Spacing: a 4px base rhythm (Tailwind's --spacing) plus the two steps the shell needs. */
+  --spacing-gutter: 1.25rem; /* 20px - page side padding */
+  --spacing-stack: 1.5rem; /* 24px - the gap between blocks of a screen */
+
+  /* Radii: one for controls, one for panels, one for pills. */
+  --radius-control: 0.75rem;
+  --radius-panel: 1rem;
+  --radius-pill: 9999px;
+
+  /* The page and reading measure - added in Phase B. It is needed in four places (the shell for
+     the three routes, plus the card and interview reading width) and was previously duplicated as
+     sm:max-w-lg in three files. */
+  --width-column: 40rem;
+
+  /* Colour - light mode. Ratios below are against --color-paper (#FBFAF8). */
+  --color-paper: #fbfaf8; /* the page */
+  --color-surface: #e5e0d8; /* the body figure */
+  --color-tint: #d3cbbd; /* hover tint on the figure (1.23:1 on surface, informational) */
+  --color-ink: #1f1c19; /* 16.26:1 */
+  --color-ink-muted: #5e594f; /* 6.67:1 - step labels, disclaimer, hints */
+  --color-hairline: #6e675c; /* 5.36:1 on paper, 4.25:1 on surface - zone outlines, control borders */
+  --color-rule: #dcd6cc; /* 1.39:1 - decorative separators only, never a control boundary */
+  --color-accent: #a8482f; /* clay; 5.54:1 on paper, 5.78:1 against --color-accent-ink */
+  --color-accent-ink: #ffffff; /* text on clay: 5.78:1 */
+  --color-accent-text: #9c4530; /* clay as text: 6.09:1 */
+  --color-danger: #b4342c; /* 5.80:1 on paper */
+  --color-danger-text: #9b2c2c; /* 7.21:1 */
+}
+
+/* Colour - dark mode. Same token names, warm near-black instead of pure black. Ratios are against
+   --color-paper (#14120F). */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --color-paper: #14120f;
+    --color-surface: #2e2a25;
+    --color-tint: #4a4438; /* 1.48:1 on surface, informational */
+    --color-ink: #f4f1ec; /* 16.60:1 */
+    --color-ink-muted: #b0a99e; /* 8.03:1 */
+    --color-hairline: #8b8478; /* 5.05:1 on paper, 3.85:1 on surface */
+    --color-rule: #3a352f; /* 1.54:1, decorative */
+    --color-accent: #e08b70; /* 7.21:1 on paper, 7.21:1 against --color-accent-ink */
+    --color-accent-ink: #14120f; /* text on clay: 7.21:1 */
+    --color-accent-text: #e8a28c; /* 8.88:1 */
+    --color-danger: #e58f8f; /* 7.71:1 */
+    --color-danger-text: #f0a8a8; /* 9.68:1 */
   }
 }
 
+/**
+ * The page itself.
+ *
+ * The scaffold's `body { font-family: Arial, Helvetica, sans-serif }` used to override the Geist
+ * font that src/app/layout.tsx loads, so the app rendered in Arial while shipping a font it never
+ * showed (audit section 4.4). The family now comes from the `font-sans` utility on <html>, driven
+ * by the --font-sans token, so there is one source and no override.
+ */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-paper);
+  color: var(--color-ink);
 }

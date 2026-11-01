@@ -1,0 +1,20 @@
+{
+  "note": "Recorded mock responses for the interview stage - blueprint Chapter 4.3. A canned three-question sequence, one valid draft card, and one deliberately invalid draft card so both paths are exercised. Mock mode only. The sequence's third question is the owner-approved comparison question (Q14, approved 2026-11-01 as the resolution of ISS-02), so the session asks for the comparison the card's intensity_metaphor row needs.",
+  "question_ids": ["Q1", "Q4", "Q14"],
+  "draft_card": {
+    "location_label": "shoulder",
+    "quality_words": ["tight", "heavy"],
+    "intensity_metaphor": "like a scarf knotted too tight",
+    "duration": "since this morning",
+    "user_own_sentence": "It feels like a scarf knotted too tight across my shoulders."
+  },
+  "invalid_draft_card": {
+    "location_label": "shoulder",
+    "quality_words": ["tight", "heavy"],
+    "intensity_metaphor": "like a scarf knotted too tight",
+    "duration": "since this morning",
+    "user_own_sentence": "It feels like a scarf knotted too tight across my shoulders.",
+    "possible_cause": "a long day at the desk",
+    "recommendation": "rest and drink water"
+  }
+}

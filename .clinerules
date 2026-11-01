@@ -10,7 +10,7 @@ THE FIVE IRON RULES
 RULE 1 - SCHEMA LOCK. A sensation card contains exactly five fields:
 location_label, quality_words (max 5), intensity_metaphor, duration,
 user_own_sentence. There is NO field for advice, interpretation, cause,
-diagnosis, recommendation, or "insight" - not in the database, not in
+diagnosis, recommendation, or 'insight' - not in the database, not in
 the Zod schema, not in the UI. Never add one. If a model response
 contains advice, strip it and return the reviewed fallback card.
 
@@ -23,23 +23,24 @@ system, or condition. Every question comes from the reviewed bank in
 src/lib/questionBank.ts - the model may not invent questions.
 
 RULE 3 - PATTERNS ARE VOCABULARY, NOT CONDITIONS. The journal may
-count and cluster the user's own words ("you used tight nine times,
-mostly on Mondays"). It must NEVER correlate sensations with
-conditions, suggest what they mean, or generate health "insights".
+count and cluster the user's own words ('you used tight nine times,
+mostly on Mondays'). It must NEVER correlate sensations with
+conditions, suggest what they mean, or generate health 'insights'.
 Weekly roundups are DRAFTS the user edits before saving.
 
 RULE 4 - CRISIS SHIELD IS NUMBERS, NOT TRIAGE. If any input contains
 explicit crisis or self-harm language, stop the loop, show the static
-crisis screen with hotline numbers, and save nothing. The trigger is
-language, never a pattern of sensations. Do NOT add symptom-based
-emergency rules (chest plus arm suggesting ER is medical triage and
-is forbidden).
+crisis screen (988 US, 116 123 UK, 112 Nigeria and EU, plus a
+findahelpline.com link for everywhere else), and save nothing. The
+trigger is language, never a pattern of sensations. Do NOT add
+symptom-based emergency rules (chest plus arm suggesting ER is medical
+triage and is forbidden).
 
-RULE 5 - COPY DISCIPLINE. The words "symptom", "diagnosis",
-"treatment", and "indicates" never appear in UI copy. The word is
-always "sensation". Every screen shows the fixed line: "SomaMap is a
+RULE 5 - COPY DISCIPLINE. The words 'symptom', 'diagnosis',
+'treatment', and 'indicates' never appear in UI copy. The word is
+always 'sensation'. Every screen shows the fixed line: 'SomaMap is a
 vocabulary and journaling tool. It does not interpret sensations or
-give medical advice."
+give medical advice.'
 
 BUILD RULES
 - All model calls run server-side. Keys live in .env.local only -

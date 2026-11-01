@@ -1,0 +1,8 @@
+{
+  "note": "Recorded mock response for the prescreen stage - blueprint Chapter 4.3 and Table 10 stage 1. Mock mode only: nothing here calls a provider.",
+  "recorded": [
+    { "input": "I want to hurt myself", "crisis": true },
+    { "input": "everything feels heavy today", "crisis": false }
+  ],
+  "default_crisis": false
+}
