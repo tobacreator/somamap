@@ -5,7 +5,22 @@ import { mockCardFrom, preserveUserSelection, regionLabelFrom, withFallbackFidel
 import { cardViewForPayload } from "./cardView.ts";
 import { CARD_NOT_ANSWERED } from "./copy.ts";
 import { interviewFixture } from "./fixtures.ts";
-import { interviewStep, questionForStep, type InterviewDeps } from "./interview.ts";
+import { interviewStep as stateMachine, questionForStep, type InterviewDeps, type InterviewStepResult } from "./interview.ts";
+import { acknowledgementFor } from "./externalProcessing.ts";
+
+/**
+ * A turn as a real client sends it (Phase 2D): the interview's own fields, plus the acknowledgement of
+ * the provider the user was told about before the interview started. `stateMachine` is the raw call,
+ * and the tests that prove what happens *without* an acknowledgement use it directly.
+ */
+function acknowledgedTurn(body: unknown, depsForTurn: InterviewDeps): Promise<InterviewStepResult> {
+  const acknowledged =
+    body !== null && typeof body === "object" && !Array.isArray(body)
+      ? { ...body, acknowledgedProvider: acknowledgementFor(depsForTurn.mode) }
+      : body;
+
+  return stateMachine(acknowledged, depsForTurn);
+}
 import { mockAdapter } from "./models.ts";
 import { REGION_LABELS } from "./regions.ts";
 import { FALLBACK_CARD, sensationCardSchema } from "./schema.ts";
@@ -34,9 +49,14 @@ function answersFor(texts: readonly string[]) {
   return texts.map((text, index) => ({ questionId: questionForStep(index, mockAdapter).id, text }));
 }
 
-/** A finished session, driven through the real state machine. */
-function completeSession(texts: readonly string[], regionLabel?: string) {
-  const result = interviewStep({ answers: answersFor(texts), regionLabel }, DEPS);
+/**
+ * A finished session, driven through the real state machine.
+ *
+ * Asynchronous because the state machine is (Phase 1, the async foundation): it awaits the
+ * wording of the card, so every caller of this helper awaits it too.
+ */
+async function completeSession(texts: readonly string[], regionLabel?: string) {
+  const result = await acknowledgedTurn({ answers: answersFor(texts), regionLabel }, DEPS);
 
   assert.equal(result.status, "complete", `the session did not complete: ${JSON.stringify(result)}`);
 
@@ -80,14 +100,20 @@ describe("the mock's card is derived, never replayed", () => {
 
 
 describe("the card is the session's own material", () => {
-  it("carries the region the user selected and the words they typed, end to end", () => {
-    const session = completeSession(["a dull ache behind my eyes", "like a foggy window", "for two days"], "head");
+  it("carries the region the user selected and the words they typed, end to end", async () => {
+    // The duration sits in the first answer here, not the third: no question in the shipped sequence
+    // asks how long, and the comparison question's answer is never read as a duration (`ISS-16/E`), so
+    // a session whose only time phrase is the reply to "What does it remind you of?" has no duration.
+    const session = await completeSession(["for two days", "like a foggy window", "a dull ache behind my eyes"], "head");
 
     assert.deepEqual(session.card, {
       location_label: "head",
-      quality_words: ["dull", "ache", "behind", "eyes", "foggy"],
+      // "foggy" and "window" came only from the comparison, which the card already shows in full in
+      // the row below, so they are not listed a second time (correction 3). The words that remain are
+      // the ones no other row shows.
+      quality_words: ["dull", "ache", "behind"],
       intensity_metaphor: "like a foggy window",
-      duration: "for two days",
+      duration: "two days",
       user_own_sentence: "a dull ache behind my eyes",
     });
     assert.equal(session.usedFallback, false);
@@ -120,10 +146,20 @@ describe("the card is the session's own material", () => {
         assert.equal(spoken.includes(word.toLowerCase()), true, `${word} in ${JSON.stringify(texts)}`);
       }
 
-      for (const value of [card.user_own_sentence, card.duration, card.intensity_metaphor]) {
+      for (const value of [card.user_own_sentence, card.intensity_metaphor]) {
         if (value.length === 0) continue;
 
         assert.equal(texts.includes(value), true, `${value} in ${JSON.stringify(texts)}`);
+      }
+
+      // The duration row holds the expression inside an answer rather than the whole answer, so it
+      // must be a substring of something the user typed - still never a word they did not write.
+      if (card.duration.length > 0) {
+        assert.equal(
+          texts.some((text) => text.includes(card.duration)),
+          true,
+          `${card.duration} in ${JSON.stringify(texts)}`,
+        );
       }
 
       assert.equal(card.location_label === "" || REGION_LABELS.includes(card.location_label), true);
@@ -134,11 +170,11 @@ describe("the card is the session's own material", () => {
 });
 
 describe("every region reaches the card", () => {
-  it("keeps all fourteen labels, end to end through the state machine", () => {
+  it("keeps all fourteen labels, end to end through the state machine", async () => {
     assert.equal(REGION_LABELS.length, 14);
 
     for (const label of REGION_LABELS) {
-      const session = completeSession(["a dull ache behind my eyes", "like a foggy window", "for two days"], label);
+      const session = await completeSession(["a dull ache behind my eyes", "like a foggy window", "for two days"], label);
 
       assert.equal(session.card.location_label, label);
     }
@@ -157,9 +193,10 @@ describe("every region reaches the card", () => {
 });
 
 describe("no recorded value can reach another session's card", () => {
-  it("shows the user's words where the recorded draft's words used to appear", () => {
-    const session = completeSession(
-      ["a cold knot low in my belly", "like a stone sitting there", "on and off for weeks"],
+  it("shows the user's words where the recorded draft's words used to appear", async () => {
+    // As above, the duration sits in the first answer so the session still has one to show.
+    const session = await completeSession(
+      ["on and off for weeks", "like a stone sitting there", "a cold knot low in my belly"],
       "abdomen",
     );
     const rendered = JSON.stringify(session.card);
@@ -180,13 +217,14 @@ describe("no recorded value can reach another session's card", () => {
 
     assert.equal(session.card.location_label, "abdomen");
     assert.equal(session.card.user_own_sentence, "a cold knot low in my belly");
-    assert.equal(session.card.duration, "on and off for weeks");
+    // The row names the time unit, not the pattern: "on and off" says how it behaves, not how long.
+    assert.equal(session.card.duration, "weeks");
   });
 });
 
 describe("an empty session produces an empty card", () => {
-  it("leaves the fields the user did not fill empty, and renders them as not answered", () => {
-    const session = completeSession(["", "", ""]);
+  it("leaves the fields the user did not fill empty, and renders them as not answered", async () => {
+    const session = await completeSession(["", "", ""]);
 
     assert.deepEqual(session.card, {
       location_label: "",
@@ -205,17 +243,20 @@ describe("an empty session produces an empty card", () => {
 });
 
 describe("the boundary's two substitutions", () => {
-  it("lets the user's own region win over the draft's location", () => {
+  it("lets the user's own location win over the draft's location, whether the map knows it or not", () => {
     assert.equal(
       preserveUserSelection(interviewFixture.draft_card, { answers: [], regionLabel: "knees" }).location_label,
       "knees",
     );
-    // No region selected: the draft is left exactly as it is - there is nothing to preserve.
-    assert.deepEqual(preserveUserSelection(interviewFixture.draft_card, { answers: [] }), interviewFixture.draft_card);
-    assert.deepEqual(
-      preserveUserSelection(interviewFixture.draft_card, { answers: [], regionLabel: "elbow" }),
-      interviewFixture.draft_card,
+
+    // Phase 2H: a location the map does not know is still the person's answer, so it still wins.
+    assert.equal(
+      preserveUserSelection(interviewFixture.draft_card, { answers: [], regionLabel: "left wrist" }).location_label,
+      "left wrist",
     );
+
+    // No location at all: the draft is left exactly as it is - there is nothing to preserve.
+    assert.deepEqual(preserveUserSelection(interviewFixture.draft_card, { answers: [] }), interviewFixture.draft_card);
   });
 
   it("fills the reviewed fallback's placeholders with the session's own values", () => {
@@ -229,7 +270,7 @@ describe("the boundary's two substitutions", () => {
 
     assert.equal(filled.location_label, "head");
     assert.equal(filled.user_own_sentence, "a dull ache behind my eyes");
-    assert.equal(filled.duration, "for two days");
+    assert.equal(filled.duration, "two days");
     assert.deepEqual(filled.quality_words, FALLBACK_CARD.quality_words);
     assert.equal(filled.intensity_metaphor, FALLBACK_CARD.intensity_metaphor);
     assert.equal(sensationCardSchema.safeParse(filled).success, true);

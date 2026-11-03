@@ -43,31 +43,22 @@ describe("model mode", () => {
   });
 });
 
-describe("prescreen", () => {
-  it("uses the lexicon before the recorded classifier", () => {
-    const result = mockAdapter.prescreen("I want to hurt myself");
-
-    assert.equal(result.crisis, true);
-    assert.equal(result.source, "lexicon");
+describe("the adapters (Phase 2C)", () => {
+  it("asks the reviewed questions in both modes", () => {
+    assert.deepEqual(mockAdapter.questionSequence(), interviewFixture.question_ids);
+    assert.deepEqual(
+      unavailableAdapter.questionSequence(),
+      interviewFixture.question_ids,
+      "the sequence is a product decision, not a provider one",
+    );
   });
 
-  it("answers from the recorded fixture, and by default otherwise", () => {
-    const recorded = mockAdapter.prescreen("everything feels heavy today");
-
-    assert.equal(recorded.crisis, false);
-    assert.equal(recorded.source, "classifier");
-
-    const unrecorded = mockAdapter.prescreen("a tight band around my forehead");
-
-    assert.equal(unrecorded.crisis, false);
-    assert.equal(unrecorded.source, "classifier");
-  });
-
-  it("fails closed when no provider is available", () => {
-    const result = unavailableAdapter.prescreen("anything at all");
-
-    assert.equal(result.crisis, true);
-    assert.equal(result.source, "provider-unavailable");
+  it("carries no crisis decision of its own, in either mode", () => {
+    // The shield belongs to interviewStep and the local lexicon (src/lib/crisis.ts). Neither adapter
+    // has a member that could decide it, so no provider status - down, slow, throwing or absent - can
+    // ever produce a crisis screen, and none can suppress one either.
+    assert.equal("prescreen" in mockAdapter, false);
+    assert.equal("prescreen" in unavailableAdapter, false);
   });
 });
 
@@ -102,22 +93,30 @@ describe("draft validation", () => {
 });
 
 describe("wordCard", () => {
-  it("uses a valid draft as itself, with nothing recorded", () => {
+  it("accepts a valid draft without refusing it, and records nothing", async () => {
     const { records, logger } = collectingLogger();
-    const worded = wordCard(SNAPSHOT, {
-      adapter: { ...mockAdapter, interview: () => interviewFixture.draft_card },
+    const worded = await wordCard(SNAPSHOT, {
+      adapter: { ...mockAdapter, interview: async () => interviewFixture.draft_card },
       logger,
       mode: "mock",
     });
 
     assert.equal(worded.usedFallback, false);
-    assert.deepEqual(worded.card, interviewFixture.draft_card);
     assert.deepEqual(records, []);
+
+    // Phase 2A: a valid draft is no longer used as itself. The recorded fixture's region, duration
+    // and sentence are not **this** session's - the session typed only "tight across the shoulders" -
+    // so they are grounded away rather than shown as the user's own. The grounding itself is proven
+    // case by case in `cardFidelity.modelDraft.test.ts`.
+    assert.notDeepEqual(worded.card, interviewFixture.draft_card);
+    assert.equal(worded.card.location_label, "", "no region was selected, so no region is named");
+    assert.equal(worded.card.duration, "", "the session said nothing about how long");
+    assert.equal(worded.card.user_own_sentence, SNAPSHOT.answers[0].text, "the user's own words");
   });
 
-  it("builds mock mode's card from the snapshot instead of replaying the fixture", () => {
+  it("builds mock mode's card from the snapshot instead of replaying the fixture", async () => {
     const { records, logger } = collectingLogger();
-    const worded = wordCard(SNAPSHOT, { adapter: mockAdapter, logger, mode: "mock" });
+    const worded = await wordCard(SNAPSHOT, { adapter: mockAdapter, logger, mode: "mock" });
 
     assert.equal(worded.usedFallback, false);
     assert.deepEqual(records, []);
@@ -134,7 +133,7 @@ describe("wordCard", () => {
     });
   });
 
-  it("gives the reviewed fallback the user's own sentence and duration", () => {
+  it("gives the reviewed fallback the user's own sentence and duration", async () => {
     const { records, logger } = collectingLogger();
     const snapshot = {
       answers: [
@@ -144,8 +143,8 @@ describe("wordCard", () => {
       ],
       regionLabel: "head",
     };
-    const worded = wordCard(snapshot, {
-      adapter: { ...mockAdapter, interview: () => interviewFixture.invalid_draft_card },
+    const worded = await wordCard(snapshot, {
+      adapter: { ...mockAdapter, interview: async () => interviewFixture.invalid_draft_card },
       logger,
       mode: "mock",
     });
@@ -161,10 +160,10 @@ describe("wordCard", () => {
     assert.equal(worded.card.user_own_sentence, "a tight band around my forehead");
   });
 
-  it("substitutes the reviewed fallback and records the refusal safely", () => {
+  it("substitutes the reviewed fallback and records the refusal safely", async () => {
     const { records, logger } = collectingLogger();
-    const worded = wordCard(SNAPSHOT, {
-      adapter: { ...mockAdapter, interview: () => interviewFixture.invalid_draft_card },
+    const worded = await wordCard(SNAPSHOT, {
+      adapter: { ...mockAdapter, interview: async () => interviewFixture.invalid_draft_card },
       logger,
       mode: "mock",
     });
@@ -178,11 +177,11 @@ describe("wordCard", () => {
     assert.equal(records[0].mode, "mock");
   });
 
-  it("records categories only: never the answer text, never the refused values", () => {
+  it("records categories only: never the answer text, never the refused values", async () => {
     const { records, logger } = collectingLogger();
 
-    wordCard(SNAPSHOT, {
-      adapter: { ...mockAdapter, interview: () => interviewFixture.invalid_draft_card },
+    await wordCard(SNAPSHOT, {
+      adapter: { ...mockAdapter, interview: async () => interviewFixture.invalid_draft_card },
       logger,
       mode: "mock",
     });
@@ -198,10 +197,10 @@ describe("wordCard", () => {
     }
   });
 
-  it("fails closed to the fallback when the provider cannot answer", () => {
+  it("fails closed to the fallback when the provider cannot answer", async () => {
     const { records, logger } = collectingLogger();
-    const worded = wordCard(SNAPSHOT, {
-      adapter: { ...mockAdapter, interview: () => { throw new Error("provider down"); } },
+    const worded = await wordCard(SNAPSHOT, {
+      adapter: { ...mockAdapter, interview: async () => { throw new Error("provider down"); } },
       logger,
       mode: "live",
     });
@@ -212,9 +211,9 @@ describe("wordCard", () => {
     assert.deepEqual(records[0].keys, []);
   });
 
-  it("fails closed through the unavailable adapter", () => {
+  it("fails closed through the unavailable adapter", async () => {
     const { records, logger } = collectingLogger();
-    const worded = wordCard(SNAPSHOT, { adapter: unavailableAdapter, logger, mode: "live" });
+    const worded = await wordCard(SNAPSHOT, { adapter: unavailableAdapter, logger, mode: "live" });
 
     assert.equal(worded.usedFallback, true);
     assert.equal(records[0].reason, "provider-unavailable");

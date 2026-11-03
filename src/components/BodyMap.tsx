@@ -15,6 +15,7 @@ import {
 import {
   mapSpaceForView,
   regionAtPoint,
+  viewForLabel,
   zoneCentre,
   zonesForView,
   type BodyMapPoint,
@@ -100,9 +101,55 @@ const ZONE_SELECTED_CLASS = "fill-accent stroke-paper group-focus-visible:stroke
 
 type Selection = { zone: BodyZone; point: BodyMapPoint };
 
-export default function BodyMap({ onRegionChange }: { onRegionChange?: (label: string | null) => void }) {
-  const [view, setView] = useState<BodyView>("front");
-  const [selection, setSelection] = useState<Selection | null>(null);
+/**
+ * What the readout says (Phase 2H).
+ *
+ * The check-in screen's location field wins whenever it holds anything, because the field is the source
+ * of truth: someone who taps "chest" and then edits the field to "upper chest" must not watch the map
+ * contradict them. With no field text, the map describes its own selection, and with neither it shows
+ * the hint it always showed.
+ */
+function readoutText(readoutLabel: string | undefined, selectedLabel: string | null): string {
+  const typed = readoutLabel?.trim() ?? "";
+
+  if (typed.length > 0) return `${REGION_READOUT_PREFIX}: ${typed}`;
+  if (selectedLabel !== null) return `${REGION_READOUT_PREFIX}: ${selectedLabel}`;
+
+  return REGION_NONE_HINT;
+}
+
+export default function BodyMap({
+  onRegionChange,
+  onViewChange,
+  initialLabel,
+  readoutLabel,
+}: {
+  onRegionChange?: (label: string | null) => void;
+  /**
+   * Which view is on screen, reported upward (`Phase 2H` journal work). The check-in flow holds it so
+   * the session row it writes can record the view the person was actually looking at, rather than a
+   * guess. It is bookkeeping on the session, never part of the card.
+   */
+  onViewChange?: (view: BodyView) => void;
+  /**
+   * The location text the check-in screen is holding (Phase 2H). When it is set, it is what the readout
+   * shows, because the field is the source of truth: a person who taps "chest" and then edits the field
+   * to "upper chest" must not see the map contradict them. The map's own selection stays a highlight.
+   */
+  readoutLabel?: string;
+  /**
+   * The region to show as already chosen when the map opens (`ISS-14`). The check-in flow holds the
+   * label the user selected; when they come back to change it, passing the label back restores both
+   * the view that names it and the zone itself, so the map never reports "no region" for a region the
+   * user did pick. An empty or unknown label simply opens unselected.
+   */
+  initialLabel?: string;
+}) {
+  const [restored] = useState(() => viewForLabel(initialLabel ?? "", VIEWS.map((option) => option.value)));
+  const [view, setView] = useState<BodyView>(restored?.view ?? "front");
+  const [selection, setSelection] = useState<Selection | null>(() =>
+    restored === null ? null : { zone: restored.zone, point: zoneCentre(restored.zone) },
+  );
 
   /**
    * The one way the selection leaves this component: the label of the chosen region, or null when
@@ -117,6 +164,7 @@ export default function BodyMap({ onRegionChange }: { onRegionChange?: (label: s
     // The views name different regions, so a choice does not carry across.
     setView(next);
     setSelection(null);
+    onViewChange?.(next);
   }
 
   /**
@@ -176,7 +224,7 @@ export default function BodyMap({ onRegionChange }: { onRegionChange?: (label: s
       </div>
 
       <p aria-live="polite" className="min-h-6 text-body font-medium text-accent-text">
-        {selection ? `${REGION_READOUT_PREFIX}: ${selection.zone.label}` : REGION_NONE_HINT}
+        {readoutText(readoutLabel, selection === null ? null : selection.zone.label)}
       </p>
 
       <svg

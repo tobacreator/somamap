@@ -18,6 +18,7 @@ import {
   regionLabelAt,
   zoneById,
   zoneCentre,
+  viewForLabel,
   zonesAtPoint,
   zonesForView,
   type BodyView,
@@ -272,4 +273,45 @@ describe("region map space (Phase 2.1)", () => {
     assert.equal(thighs.y + thighs.height, shins.y);
     assert.ok(knees.y >= shins.y && knees.y + knees.height <= shins.y + shins.height);
   });
+
+describe("restoring a region onto the map (ISS-14)", () => {
+  /** The views the body map actually offers. The side view is not drawn, so it is not here. */
+  const MAP_VIEWS: readonly BodyView[] = ["front", "back"];
+
+  it("finds the view and the zone a label belongs to", () => {
+    const head = viewForLabel("head", MAP_VIEWS);
+
+    assert.equal(head?.view, "front");
+    assert.equal(head?.zone.label, "head");
+
+    const upperBack = viewForLabel("upper back", MAP_VIEWS);
+
+    assert.equal(upperBack?.view, "back");
+    assert.equal(upperBack?.zone.label, "upper back");
+  });
+
+  it("finds nothing for a label the map does not carry, or for no label at all", () => {
+    assert.equal(viewForLabel("", MAP_VIEWS), null);
+    assert.equal(viewForLabel("elbow", MAP_VIEWS), null);
+    // The map's labels are lower case, and a label is a lookup rather than a guess.
+    assert.equal(viewForLabel("Head", MAP_VIEWS), null);
+  });
+
+  it("restores every label of every view the map offers", () => {
+    for (const view of MAP_VIEWS) {
+      for (const zone of zonesForView(view)) {
+        assert.equal(viewForLabel(zone.label, MAP_VIEWS)?.zone.id, zone.id, `${zone.label} restores to its own zone`);
+      }
+    }
+  });
+
+  it("never restores a label onto a view the map does not offer", () => {
+    // The side view reuses the same fourteen labels. A map that draws front and back must be handed a
+    // view it can actually render, so a side label restores onto the front or back zone that names it.
+    for (const zone of zonesForView("side")) {
+      assert.notEqual(viewForLabel(zone.label, MAP_VIEWS)?.view, "side");
+    }
+  });
+});
+
 });

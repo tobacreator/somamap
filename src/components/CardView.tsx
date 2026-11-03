@@ -1,5 +1,5 @@
 import StepLabel from "@/components/StepLabel";
-import { cardViewForPayload } from "@/lib/cardView";
+import { cardViewForPayload, displayRows } from "@/lib/cardView";
 
 /**
  * The card view - blueprint Section 6.1 and the repo layout's `src/components/CardView`.
@@ -7,7 +7,9 @@ import { cardViewForPayload } from "@/lib/cardView";
  * The screen renders exactly what the render model decides, and the model can only hold a card that
  * passed the strict five-field schema: a payload with an extra key renders as the reviewed fallback
  * instead. A row whose answer has not arrived renders as explicitly unanswered, so a placeholder is
- * never shown as if the user had said it.
+ * never shown as if the user had said it - except the duration row, which the model leaves out
+ * entirely while no duration has been collected (correction 2: a permanent "Not answered yet" under
+ * "How long" would read as a missing answer to a question the user was never asked).
  *
  * `usedFallback` is deliberately not displayed: a validation failure is the system's business, and
  * the user loses nothing but flourish when the fallback renders.
@@ -17,7 +19,8 @@ import { cardViewForPayload } from "@/lib/cardView";
  * top of the type scale - because that sentence is what the product exists to help someone find. It
  * was the fifth row at the same weight as the other four. The other four fields keep their schema
  * order underneath, separated by hairlines. `cardViewForPayload` still returns five rows in schema
- * order; this component only decides which of them is presented as the hero.
+ * order; this component only decides which of them is presented as the hero, and which the render
+ * model has withheld.
  *
  * The heading and the fixed line belong to the screen: a card is a block of fields, not a page, and
  * keeping it that way is also what will let the print/export sheet reuse it unchanged.
@@ -25,7 +28,7 @@ import { cardViewForPayload } from "@/lib/cardView";
 export default function CardView({ payload }: { payload: unknown }) {
   const model = cardViewForPayload(payload);
   const sentence = model.rows.find((row) => row.field === "user_own_sentence") ?? null;
-  const fields = model.rows.filter((row) => row.field !== "user_own_sentence");
+  const fields = displayRows(model).filter((row) => row.field !== "user_own_sentence");
 
   return (
     <div className="flex flex-col gap-6">

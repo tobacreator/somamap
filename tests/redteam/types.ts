@@ -33,8 +33,14 @@ export type RedTeamRow = {
   title: string;
   /** The required behaviour, from Table 7. */
   required: string;
-  /** Present only when the row can run against the code that exists today. */
-  run?: () => RedTeamOutcome;
+  /**
+   * Present only when the row can run against the code that exists today.
+   *
+   * A row may be asynchronous (Phase 1, the async foundation): the rows that drive the model
+   * boundary have to await it. The runner awaits every row, so both shapes run the same way
+   * and a synchronous row is not a special case.
+   */
+  run?: () => RedTeamOutcome | Promise<RedTeamOutcome>;
   /** Present only when the row cannot run yet: what it is blocked on. */
   blockedOn?: string[];
 };

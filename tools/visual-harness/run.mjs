@@ -67,6 +67,40 @@ mkdirSync(OUT, { recursive: true });
 const DISCLAIMER =
   "SomaMap is a vocabulary and journaling tool. It does not interpret sensations or give medical advice.";
 
+/**
+ * The external model provider's id, as the client sends it when the build is in live mode, and the id
+ * it sends when it is not. The gates below assert that the disclosure on screen matches the mode the
+ * server is in, and that every interview request carries the acknowledgement that mode asked for.
+ */
+const PROVIDER_ID = "baseten";
+
+/** The request field the acknowledgement travels in (Phase 2D). */
+const ACKNOWLEDGED_PROVIDER_FIELD = "acknowledgedProvider";
+
+/**
+ * Which mode this run expects the server to be in, and therefore which disclosure and which
+ * acknowledgement are correct (Phase 2D follow-up). It defaults to the shipped default, mock mode:
+ * `SOMAMAP_EXPECT_MODE=live node tools/visual-harness/run.mjs` is how a live-mode server is checked.
+ *
+ * The expectations are written out per mode rather than shared, because that is the whole point of the
+ * follow-up: the mock build must not claim anything is sent to Baseten, and the live build must say
+ * plainly that the description, the region and the answers are sent there and may be sent again.
+ */
+const EXPECTED_MODE = process.env.SOMAMAP_EXPECT_MODE === "live" ? "live" : "mock";
+
+const EXPECTED =
+  EXPECTED_MODE === "live"
+    ? {
+        acknowledge: PROVIDER_ID,
+        must: [/Baseten/, /description/i, /location/i, /answers/i, /are sent to Baseten/i, /sent again/i],
+        mustNot: [/no external provider/i],
+      }
+    : {
+        acknowledge: "local",
+        must: [/no external provider/i, /not sent to Baseten/i],
+        mustNot: [/are sent to/i, /may be sent again/i],
+      };
+
 /** Iron rule 5's prohibited stems. Matched case-insensitively against rendered text. */
 const PROHIBITED = ["symptom", "diagnos", "treatment", "indicat"];
 
@@ -190,6 +224,13 @@ let ws = null;
 let nextId = 0;
 const pending = new Map();
 const postedBodies = [];
+/**
+ * Every `/api/` response the page received, so a gate can read the payload the route actually
+ * validated rather than inferring it from the screen. `apiRequestIds` maps a request to its URL
+ * until the response has finished loading, when the body is fetched.
+ */
+const apiResponses = [];
+const apiRequestIds = new Map();
 
 async function listTargets(attempts = 40) {
   let lastError = "no attempt made";
@@ -313,6 +354,22 @@ function connect(webSocketDebuggerUrl) {
     if (message.method === "Network.requestWillBeSent" && message.params.request.url.includes("/api/")) {
       postedBodies.push({ url: message.params.request.url, postData: message.params.request.postData ?? null });
     }
+
+    if (message.method === "Network.responseReceived" && message.params.response.url.includes("/api/")) {
+      apiRequestIds.set(message.params.requestId, message.params.response.url);
+    }
+
+    // The body is only readable once the response has finished; a failure is recorded rather than
+    // swallowed, so a gate that depends on the payload reports why it could not read it.
+    if (message.method === "Network.loadingFinished" && apiRequestIds.has(message.params.requestId)) {
+      const requestId = message.params.requestId;
+      const url = apiRequestIds.get(requestId);
+      apiRequestIds.delete(requestId);
+
+      send("Network.getResponseBody", { requestId })
+        .then((body) => apiResponses.push({ url, body: body?.body ?? "" }))
+        .catch((error) => apiResponses.push({ url, body: "", error: String(error?.message ?? error) }));
+    }
   });
 
   return new Promise((done, reject) => {
@@ -431,6 +488,40 @@ async function clickByText(text) {
 }
 
 /** Typing through the native value setter plus a bubbling input event: what React reads. */
+/**
+ * Click a control by CSS selector. The disclosure's two controls are found by id rather than by their
+ * wording, so a copy change cannot silently make this harness click the wrong thing.
+ */
+async function clickSelector(selector) {
+  return evaluate(
+    `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return false; el.click(); return true; })()`,
+  );
+}
+
+/** How many interview requests this run has sent so far. */
+function interviewPostCount() {
+  return postedBodies.filter((p) => p.url.includes("/api/interview")).length;
+}
+
+/**
+ * Open or close the body map's short-screen panel (Phase 2H fix).
+ *
+ * Below a 600px-tall viewport the check-in screen starts with the map closed, behind a compact control,
+ * so the fixed line and the fields stay reachable. Gates that measure the map have to open it first,
+ * exactly as a person would; gates that measure the fixed line must leave the screen as it starts. It is
+ * a no-op wherever the control does not exist, which is every taller viewport.
+ */
+async function setMapOpen(open) {
+  const state = await evaluate(
+    `(() => { const map = document.querySelector("#checkin-map"); const toggle = document.querySelector("#checkin-map-toggle"); return { visible: Boolean(map) && map.offsetParent !== null, toggle: Boolean(toggle) && toggle.offsetParent !== null }; })()`,
+  );
+
+  if (!state.toggle || state.visible === open) return;
+
+  await clickSelector("#checkin-map-toggle");
+  await settle(300);
+}
+
 async function typeInto(selector, text) {
   return evaluate(`(() => {
     const el = document.querySelector(${JSON.stringify(selector)});
@@ -1250,12 +1341,334 @@ function sizingGates(prefix, sizing) {
   );
 }
 
+/* ------------------------------------- reading the card: the payload and the rendered rows */
+
+/** The five approved schema fields, listed here rather than imported - the harness holds its own copy. */
+const CARD_FIELDS = ["location_label", "quality_words", "intensity_metaphor", "duration", "user_own_sentence"];
+
+/** The label each field carries on screen. */
+const CARD_LABELS = {
+  location_label: "Where",
+  quality_words: "Words you chose",
+  intensity_metaphor: "It feels like",
+  duration: "How long",
+  user_own_sentence: "In your words",
+};
+
+/**
+ * The last completed session's response body, parsed - the payload the route validated. Waits for it
+ * because the body is fetched asynchronously once the response finishes loading.
+ */
+async function lastInterviewResponse(timeoutMs = 8000) {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    for (let index = apiResponses.length - 1; index >= 0; index -= 1) {
+      const entry = apiResponses[index];
+
+      if (entry.error) continue;
+
+      try {
+        const parsed = JSON.parse(entry.body);
+        if (parsed && parsed.status === "complete") return parsed;
+      } catch {
+        /* not a JSON body, or not the one this gate wants */
+      }
+    }
+
+    await settle(150);
+  }
+
+  return null;
+}
+
+/**
+ * The card as it is rendered: the hero row first (`In your words`), then the rows the render model
+ * allowed. Read structurally - the heading's sibling is the card, the hero is its first block, and
+ * the remaining rows are the `dl`'s own `dt`/`dd` pairs - so a missing, duplicated or empty row shows
+ * up as a mismatch rather than being smoothed over by a text search.
+ */
+const READ_CARD = `(() => {
+  const root = document.querySelector("#card-title")?.nextElementSibling;
+  if (!root) return null;
+
+  const heroBlock = root.firstElementChild;
+  const heroParas = heroBlock ? [...heroBlock.querySelectorAll(":scope > p")] : [];
+  const hero = heroParas.length >= 2
+    ? { label: heroParas[0].innerText.trim(), value: heroParas[1].innerText.trim() }
+    : null;
+
+  const dl = root.querySelector("dl");
+  const fields = dl
+    ? [...dl.children].map((row) => ({
+        label: (row.querySelector("dt")?.innerText ?? "").trim(),
+        value: (row.querySelector("dd")?.innerText ?? "").trim(),
+      }))
+    : [];
+
+  return {
+    hero,
+    fields,
+    dtCount: dl ? dl.querySelectorAll("dt").length : 0,
+    ddCount: dl ? dl.querySelectorAll("dd").length : 0,
+  };
+})()`;
+
+/**
+ * What one session's card must be, given what that session actually collected (correction 2).
+ *
+ * The checks are deliberately separate, so a failure says which part moved:
+ *
+ *   1. the **internal payload** the route validated carries exactly the five approved fields - the
+ *      schema is asserted on the payload, never on the screen, so hiding a row cannot hide a schema
+ *      change;
+ *   2. the **rendered rows** are the hero plus the rows the session can answer, in order, with the
+ *      `How long` row present only when a duration was genuinely collected;
+ *   3. no row is rendered twice and no rendered row is empty;
+ *   4. the `How long` row, when it is shown, quotes the phrase the session itself supplied.
+ */
+function cardShapeProblems(payload, rows, withDuration) {
+  const problems = [];
+
+  const card = payload && typeof payload === "object" ? payload.card : null;
+  const keys = card && typeof card === "object" ? Object.keys(card).sort() : [];
+
+  if (keys.join(",") !== [...CARD_FIELDS].sort().join(",")) {
+    problems.push(`internal payload keys ${JSON.stringify(keys)}`);
+  }
+
+  if (rows === null) {
+    problems.push("the card did not render");
+    return problems;
+  }
+
+  const expectedFields = CARD_FIELDS.filter(
+    (field) => field !== "user_own_sentence" && (Boolean(withDuration) || field !== "duration"),
+  );
+  const expectedLabels = ["user_own_sentence", ...expectedFields].map((field) => CARD_LABELS[field]);
+  const renderedLabels = [rows.hero?.label ?? "", ...rows.fields.map((row) => row.label)];
+
+  if (renderedLabels.join(" | ") !== expectedLabels.join(" | ")) {
+    problems.push(`rows ${JSON.stringify(renderedLabels)}`);
+  }
+
+  if (new Set(renderedLabels).size !== renderedLabels.length) {
+    problems.push("a row is rendered twice");
+  }
+
+  const values = [rows.hero?.value ?? "", ...rows.fields.map((row) => row.value)];
+
+  if (values.some((value) => value.length === 0)) {
+    problems.push("a rendered row is empty");
+  }
+
+  if (rows.dtCount !== rows.fields.length || rows.ddCount !== rows.fields.length) {
+    problems.push(`dt/dd pairs ${rows.dtCount}/${rows.ddCount} against ${rows.fields.length} row(s)`);
+  }
+
+  if (withDuration) {
+    const duration = rows.fields.find((row) => row.label === CARD_LABELS.duration);
+
+    if (!duration || duration.value !== withDuration) {
+      problems.push(`How long shows ${JSON.stringify(duration?.value ?? "(no row)")}`);
+    }
+  }
+
+  return problems;
+}
+
+/**
+ * The journey again, with a time phrase in one answer (correction 2's second state).
+ *
+ * No shipped question asks how long, so the only way a duration can reach the card is a user
+ * mentioning time in an answer. This session does exactly that, which is what makes the `How long`
+ * row's *presence* testable rather than assumed.
+ */
+async function journeyWithDuration(prefix) {
+  if (!(await goto(`${BASE}/checkin`, `${prefix} (duration session)`))) return null;
+
+  await evaluate("document.fonts.ready.then(() => true)");
+  await settle(300);
+  await scrollFigureIntoView();
+  await settle(200);
+
+  const before = await evaluate(MEASURE);
+  const chest = before.zones.find((z) => (z.label || "").includes("chest"));
+  if (!chest) return null;
+
+  await clickAt(chest.centre.x, chest.centre.y);
+  await settle(200);
+  await typeInto("#checkin-box", "a tight band across my chest");
+  await settle(150);
+
+  // The same disclosure gate as the first session (Phase 2D).
+  const postsBeforeCheckIn = interviewPostCount();
+
+  await clickByText("Continue");
+  await settle(600);
+
+  if (!(await acknowledgeExternalProcessing(`${prefix} (duration session)`, postsBeforeCheckIn))) return null;
+
+  const answers = ["it has been there for two days", "a warm, spreading feeling", "a heavy blanket"];
+
+  for (const answer of answers) {
+    const ready = await pollFor(
+      `(() => { const t = document.querySelector("textarea"); return Boolean(t) && !t.disabled; })()`,
+      15000,
+    );
+    if (!ready) return null;
+    if (!(await typeInto("textarea", answer))) return null;
+    await settle(200);
+    await clickByText("Continue");
+
+    const advanced = await pollFor(
+      `(() => {
+        if (document.body.innerText.includes("Your card")) return true;
+        const t = document.querySelector("textarea");
+        return Boolean(t) && !t.disabled && t.value === "";
+      })()`,
+      15000,
+    );
+    if (!advanced) return null;
+  }
+
+  return {
+    payload: await lastInterviewResponse(),
+    rows: await evaluate(READ_CARD),
+    // The `How long` row holds the duration expression inside the first answer
+    // ("it has been there for two days" -> "two days"), not the whole answer.
+    duration: "two days",
+  };
+}
+
+
+/* ------------------------------------------------------- the disclosure (Phase 2D) */
+
+/**
+ * The external processing disclosure, and the acknowledgement it requires (Phase 2D).
+ *
+ * The interview cannot be reached without it: the check-in's Continue leads to the disclosure, and the
+ * only way on is the acknowledgement control. `P4.disclosure` asserts that the notice names the
+ * provider and the words that are sent, that the interview field is not on the page yet, and that
+ * **no interview request has been sent** at the moment it appears - which is the property the phase
+ * exists for. Returns false when the disclosure never appeared, so the gates that follow report a real
+ * failure instead of timing out.
+ */
+async function acknowledgeExternalProcessing(prefix, postsBeforeCheckIn) {
+  const appeared = await pollFor(
+    `(() => Boolean(document.querySelector("#external-processing-acknowledge")))()`,
+    10000,
+  );
+
+  if (!appeared) {
+    gate("P4.disclosure", `${prefix}: the disclosure appears before the interview`, false, "the acknowledgement control never appeared");
+    return false;
+  }
+
+  const text = await bodyText();
+  // The interview's own field, by id: the check-in's box is a textarea too, and this must not match it.
+  const interviewOnScreen = await evaluate(`Boolean(document.querySelector("#interview-answer"))`);
+  const postsNow = interviewPostCount();
+  const problems = [];
+
+  for (const pattern of EXPECTED.must) {
+    if (!pattern.test(text)) problems.push(`the disclosure does not say ${pattern}`);
+  }
+
+  for (const pattern of EXPECTED.mustNot) {
+    if (pattern.test(text)) problems.push(`the disclosure claims ${pattern}, which is false in this build`);
+  }
+
+  if (interviewOnScreen) problems.push("the interview field is already on the page");
+  if (postsNow !== postsBeforeCheckIn) problems.push(`${postsNow - postsBeforeCheckIn} interview request(s) were already sent`);
+
+  gate(
+    "P4.disclosure",
+    `${prefix} (${EXPECTED_MODE} mode): the disclosure is accurate for this build, and appears before any interview request`,
+    problems.length === 0,
+    problems.length === 0 ? `${EXPECTED_MODE} wording; no interview request sent yet` : problems.join("; "),
+  );
+
+  const acknowledged = await clickSelector("#external-processing-acknowledge");
+
+  await settle(500);
+
+  return acknowledged;
+}
+
+/**
+ * Declining the disclosure (Phase 2D): the interview must not start and nothing may be sent.
+ *
+ * The check is a count of interview requests before and after the decline, plus the page the user is
+ * left on, plus the copy that says nothing was sent - so "not acknowledging sends nothing" is measured
+ * rather than assumed from the UI.
+ */
+async function declinePass(prefix) {
+  const postsBefore = interviewPostCount();
+
+  if (!(await goto(`${BASE}/checkin`, `${prefix} (decline session)`))) return;
+
+  await evaluate("document.fonts.ready.then(() => true)");
+  await settle(300);
+  await scrollFigureIntoView();
+  await settle(200);
+
+  const measured = await evaluate(MEASURE);
+  const chest = measured.zones.find((z) => (z.label || "").includes("chest"));
+
+  if (!chest) {
+    gate("P6.declined", `${prefix}: declining sends nothing and starts no interview`, false, "no chest zone to tap");
+    return;
+  }
+
+  await clickAt(chest.centre.x, chest.centre.y);
+  await settle(200);
+  await typeInto("#checkin-box", "a tight band across my chest");
+  await settle(150);
+  await clickByText("Continue");
+  await settle(500);
+
+  const declined = await clickSelector("#external-processing-decline");
+  await settle(500);
+
+  const text = await bodyText();
+  // The interview's own field, by id - the check-in's box is a textarea as well, so `textarea` alone
+  // would report the interview as started the moment the user is back on the check-in screen.
+  const interviewOnScreen = await evaluate(`Boolean(document.querySelector("#interview-answer"))`);
+  const keptWords = await evaluate(
+    `(() => { const box = document.querySelector("#checkin-box"); return Boolean(box) && box.value === "a tight band across my chest"; })()`,
+  );
+  const postsAfter = interviewPostCount();
+  const problems = [];
+
+  if (!declined) problems.push("the decline control was not there");
+  if (postsAfter !== postsBefore) problems.push(`${postsAfter - postsBefore} interview request(s) were sent`);
+  if (interviewOnScreen) problems.push("the interview started anyway");
+  if (!keptWords) problems.push("the words were not kept on the check-in screen");
+  if (!text.includes("Nothing was sent")) problems.push("the screen does not say nothing was sent");
+
+  gate(
+    "P6.declined",
+    `${prefix}: declining sends nothing and starts no interview`,
+    problems.length === 0,
+    problems.length === 0 ? "0 interview request(s), interview not started, words kept" : problems.join("; "),
+  );
+}
+
+
 /* ------------------------------------------------------- the journey (regression pack) */
 
 /**
- * Tap a region, answer three questions, and check the card the route validated: the five field
- * labels, the region the user tapped, and the fixed line. Nothing is saved - the same path a real
- * user walks, so a compliance regression shows up here.
+ * Tap a region, answer three questions, and check the card the route validated: the region the user
+ * tapped, the fixed line, and the card's own shape. Nothing is saved - the same path a real user
+ * walks, so a compliance regression shows up here.
+ *
+ * The journey runs **twice**. The first session is the ordinary one: no shipped question asks how
+ * long, and none of its answers mentions time, so its card has no duration and the `How long` row is
+ * hidden. The second is the same walk with a time phrase in an answer, which is the only way a
+ * duration reaches a card today, and its card must show the row. `J3.fields` reads both, because the
+ * approved behaviour is defined by the pair: five schema fields in the payload always, and the
+ * `How long` row on screen only when a duration was genuinely collected.
  */
 async function journeyPass() {
   const prefix = "journey";
@@ -1279,8 +1692,15 @@ async function journeyPass() {
   await settle(200);
   await typeInto("#checkin-box", "a tight band across my chest");
   await settle(150);
+
+  // Phase 2D: the interview sits behind the external processing disclosure, and only an explicit
+  // acknowledgement opens it. Nothing may have been sent before that point.
+  const postsBeforeCheckIn = interviewPostCount();
+
   await clickByText("Continue");
   await settle(600);
+
+  if (!(await acknowledgeExternalProcessing(prefix, postsBeforeCheckIn))) return;
 
   for (let turn = 1; turn <= 3; turn += 1) {
     // Wait for the question to arrive: the answer field is disabled while a request is in flight.
@@ -1316,9 +1736,29 @@ async function journeyPass() {
   await shot("p2-390-light-card");
 
   const cardText = await bodyText();
-  const fieldLabels = ["Where", "Words you chose", "It feels like", "How long", "In your words"];
-  const missing = fieldLabels.filter((label) => !cardText.includes(label));
-  gate("J3.fields", `${prefix}: the card shows the five field labels`, missing.length === 0, missing.join(",") || "all five");
+  const firstPayload = await lastInterviewResponse();
+  const firstRows = await evaluate(READ_CARD);
+
+  // The second state (correction 2): the same journey with a time phrase in an answer, so a duration
+  // really is collected and the `How long` row has to appear. It runs here so the gate below can read
+  // both cards while the gates that report on the first one keep their order.
+  const withDuration = await journeyWithDuration(prefix);
+
+  const firstProblems = cardShapeProblems(firstPayload, firstRows, "");
+  const secondProblems =
+    withDuration === null
+      ? ["the duration session did not complete"]
+      : cardShapeProblems(withDuration.payload, withDuration.rows, withDuration.duration);
+
+  gate(
+    "J3.fields",
+    `${prefix}: the card carries five schema fields, and renders How long only when a duration was collected`,
+    firstProblems.length === 0 && secondProblems.length === 0,
+    [
+      firstProblems.length ? `no duration: ${firstProblems.join("; ")}` : "no duration: 4 rows",
+      secondProblems.length ? `with duration: ${secondProblems.join("; ")}` : "with duration: 5 rows",
+    ].join(" | "),
+  );
   gate("J2.region", `${prefix}: the card names the region the user tapped`, cardText.includes("chest"), cardText.includes("chest") ? "chest" : "region missing");
   gate("P1.line", `${prefix}: the card shows the fixed line`, cardText.includes(DISCLAIMER), cardText.includes(DISCLAIMER) ? "found" : "MISSING");
 
@@ -1337,6 +1777,29 @@ async function journeyPass() {
     regionSent.length > 0 && regionSent.every((r) => r === "chest"),
     `regionLabel sent: ${JSON.stringify(regionSent)}`,
   );
+
+  /**
+   * Phase 2D, the two halves that only a real browser can prove: every request this session sent
+   * carried the acknowledged provider, and a session that declines sends nothing at all.
+   */
+  const acknowledged = postedBodies
+    .filter((p) => p.url.includes("/api/interview"))
+    .map((p) => {
+      try {
+        return JSON.parse(p.postData)[ACKNOWLEDGED_PROVIDER_FIELD];
+      } catch {
+        return "(unparseable)";
+      }
+    });
+
+  gate(
+    "P5.acknowledged",
+    `${prefix} (${EXPECTED_MODE} mode): every interview request carries the acknowledgement this mode asked for`,
+    acknowledged.length > 0 && acknowledged.every((value) => value === EXPECTED.acknowledge),
+    `${ACKNOWLEDGED_PROVIDER_FIELD} sent: ${JSON.stringify(acknowledged)} (expected ${EXPECTED.acknowledge})`,
+  );
+
+  await declinePass(prefix);
 }
 
 
@@ -1586,6 +2049,9 @@ async function main() {
       await evaluate("document.fonts.ready.then(() => true)");
       await evaluate(`new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 250))))`);
 
+      // The gates below read the map, so open it where this viewport starts with it closed (Phase 2H).
+      await setMapOpen(true);
+
       const m = await evaluate(MEASURE);
       measurements[prefix] = m;
       await shot(`p2-${viewport.name}-${viewport.mode}`);
@@ -1599,6 +2065,9 @@ async function main() {
 
       // A4's third condition: the fixed line with the description field focused, at 320 wide.
       if (viewport.width === 320) {
+        // Measured in the state the screen starts in: on a short viewport that is the map closed.
+        await setMapOpen(false);
+
         await evaluate(`(() => {
           const f = document.querySelector("textarea, input[type=text]");
           if (f) { f.scrollIntoView({ block: "center" }); f.focus(); }
@@ -1627,6 +2096,7 @@ async function main() {
     if (await goto(`${BASE}/checkin`, "naming")) {
       await evaluate("document.fonts.ready.then(() => true)");
       await settle(300);
+      await setMapOpen(true);
       namingGates(await evaluate(MEASURE));
     }
 
@@ -1639,6 +2109,9 @@ async function main() {
 
       await evaluate("document.fonts.ready.then(() => true)");
       await settle(300);
+
+      // The alignment sweep reads the map, so open it where it starts closed (Phase 2H fix).
+      await setMapOpen(true);
 
       const sizing = {};
       await alignmentPass(viewport, sizing);

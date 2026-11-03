@@ -28,7 +28,12 @@ type RowReport = {
   unverified: string[];
 };
 
-function runRow(row: RedTeamRow): RowReport {
+/**
+ * Rows are awaited (Phase 1, the async foundation): the rows that drive the model boundary
+ * await it, because `wordCard` and `interviewStep` are asynchronous. A synchronous row is
+ * awaited too - awaiting a plain value is the value - so the runner has one shape to run.
+ */
+async function runRow(row: RedTeamRow): Promise<RowReport> {
   if (!row.run) {
     return {
       status: "NOT IMPLEMENTED",
@@ -38,7 +43,7 @@ function runRow(row: RedTeamRow): RowReport {
   }
 
   try {
-    const outcome = row.run();
+    const outcome = await row.run();
     const unverified = outcome.unverified ?? [];
 
     // A check may not claim PASS while it is still declaring required clauses
@@ -71,7 +76,7 @@ function printRow(row: RedTeamRow, report: RowReport): void {
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   console.log("SomaMap red-team pack - blueprint Section 3.4 (Table 7)");
   console.log("");
 
@@ -91,7 +96,7 @@ function main(): void {
   let pending = 0;
 
   for (const row of redTeamRows) {
-    const report = runRow(row);
+    const report = await runRow(row);
     printRow(row, report);
 
     if (report.status === "PASS") {
@@ -121,4 +126,4 @@ function main(): void {
   console.log("All eight rows PASS, so this pack satisfies gate G2.1. The other G2 criteria are tracked separately.");
 }
 
-main();
+void main();

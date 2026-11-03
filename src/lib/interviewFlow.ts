@@ -17,6 +17,15 @@
  *                                                             reviewed fallback in its place
  *     -> 200 { status: "crisis" }                             stop; nothing was recorded
  *     -> 400 { error: "invalid request" }                     a body the route refused
+ *     -> 503 { error: "unavailable" }                         the turn could not be produced at
+ *                                                             all (Phase 2C); never a crisis, and
+ *                                                             the client shows its retry line
+ *
+ * Every request also carries `acknowledgedProvider`: the id of the provider the user was told about
+ * and agreed to before the interview started (Phase 2D). It is attached where the request is sent
+ * (`InterviewChat`'s `postInterview`), and the route refuses a turn that does not name the disclosed
+ * provider - before any adapter is reached, and after the crisis screen. It is not a card field and
+ * never becomes one.
  *
  * `answers` carries the answers to the questions already asked, in order; `text` is the
  * answer to the question now on screen. The first question is asked by sending the empty
@@ -41,11 +50,22 @@ export type FlowQuestion = { id: string; text: string };
 /**
  * A request body for the interview route.
  *
- * `regionLabel` is the one addition the accuracy fix made (Entry 42): the label the user selected on
- * the body map, from the fixed geometric map. It travels so the server can keep the user's own
- * selection on the card, and the server ignores anything that is not one of the fourteen labels.
+ * `regionLabel` is the one addition the accuracy fix made (Entry 42), and Phase 2H widened it: the
+ * location the person chose on the fixed map **or typed into the location field**, kept as written. It
+ * travels so the server can screen it and keep it on the card, and the server ignores nothing about it
+ * except control characters and length.
  */
-export type InterviewRequest = { answers: readonly FlowAnswer[]; text?: string; regionLabel: string };
+export type InterviewRequest = {
+  answers: readonly FlowAnswer[];
+  text?: string;
+  regionLabel: string;
+  /**
+   * The description the user wrote on the check-in screen, verbatim (`ISS-16/A`). It travels with
+   * every turn, so the server can screen it before the card is worded and keep the user's own first
+   * account of the sensation on the card. An empty string means the user wrote nothing.
+   */
+  description: string;
+};
 
 /** What the route answered, once parsed. Anything this build does not know is `unexpected`. */
 export type InterviewResponse =
@@ -57,12 +77,30 @@ export type InterviewResponse =
 /**
  * The client's state: one closed set. There is no path to a card that did not arrive in a
  * `complete` answer, and no path out of `crisis` except starting again.
+ *
+ * Two fields exist for `ISS-14`, and neither changes what any state means:
+ *
+ *   - `asked` is the questions this session has actually been asked, in order, taken from the
+ *     route's own wording. It is kept so a finished session can be shown again question by question
+ *     without asking the bank for anything, and so an answer can be labelled with the question it
+ *     answered. It never travels to the server.
+ *   - `answers` on `complete` is the session the card was worded from. Before this, completion threw
+ *     the answers away, which is exactly why the card was a dead end: there was nothing left to edit.
+ *
+ * `loading`, `crisis` and `failed` carry neither, and `askedOf` returns none for them - the same
+ * shape `answersOf` already uses.
  */
 export type InterviewFlowState =
   | { phase: "loading"; answers: readonly FlowAnswer[] }
-  | { phase: "asking"; question: FlowQuestion; answers: readonly FlowAnswer[] }
-  | { phase: "submitting"; question: FlowQuestion; answers: readonly FlowAnswer[] }
-  | { phase: "complete"; card: unknown; usedFallback: boolean }
+  | { phase: "asking"; question: FlowQuestion; answers: readonly FlowAnswer[]; asked: readonly FlowQuestion[] }
+  | { phase: "submitting"; question: FlowQuestion; answers: readonly FlowAnswer[]; asked: readonly FlowQuestion[] }
+  | {
+      phase: "complete";
+      card: unknown;
+      usedFallback: boolean;
+      answers: readonly FlowAnswer[];
+      asked: readonly FlowQuestion[];
+    }
   | { phase: "crisis" }
   | { phase: "failed"; detail: string };
 
@@ -70,11 +108,12 @@ export type InterviewFlowState =
 export const EMPTY_INTERVIEW_STATE: InterviewFlowState = { phase: "loading", answers: [] };
 
 /**
- * The first request: the empty answer list, no text, and the region the user selected (empty when
- * they selected none). The route answers with question one.
+ * The first request: the empty answer list, no text, the region the user selected (empty when they
+ * selected none), and the description they wrote first (empty when they wrote none). The route answers
+ * with question one.
  */
-export function firstRequest(regionLabel: string): InterviewRequest {
-  return { answers: [], regionLabel };
+export function firstRequest(regionLabel: string, description: string): InterviewRequest {
+  return { answers: [], regionLabel, description };
 }
 
 /** The question now on screen, or null when there is none. */
@@ -87,16 +126,39 @@ export function answersOf(state: InterviewFlowState): readonly FlowAnswer[] {
   return "answers" in state ? state.answers : [];
 }
 
+/** The questions a state has been asked, or none when it has been asked none. */
+export function askedOf(state: InterviewFlowState): readonly FlowQuestion[] {
+  return "asked" in state ? state.asked : [];
+}
+
+/**
+ * The questions with `question` added, once. A question the session has already been asked is not
+ * added again, so a retry - or a revision that re-sends an answer - cannot duplicate it and leave the
+ * questions out of step with the answers.
+ */
+export function withAsked(
+  asked: readonly FlowQuestion[],
+  question: FlowQuestion,
+): readonly FlowQuestion[] {
+  return asked.some((candidate) => candidate.id === question.id) ? asked : [...asked, question];
+}
+
 /**
  * The request that submits `text` as the answer to the question now on screen, or null when
  * no question is on screen. The answers already given travel unchanged; the new words travel
  * as `text`, which is the shape the route's state machine expects; and the region the user
- * selected travels with every turn, so the card cannot lose it.
+ * selected and the description they wrote first travel with every turn, so the card cannot lose
+ * either (`ISS-16/A`, `ISS-16/F`).
  */
-export function answerRequest(state: InterviewFlowState, text: string, regionLabel: string): InterviewRequest | null {
+export function answerRequest(
+  state: InterviewFlowState,
+  text: string,
+  regionLabel: string,
+  description: string,
+): InterviewRequest | null {
   if (state.phase !== "asking" && state.phase !== "submitting") return null;
 
-  return { answers: state.answers, text, regionLabel };
+  return { answers: state.answers, text, regionLabel, description };
 }
 
 /**
@@ -113,7 +175,7 @@ export function answersWith(state: InterviewFlowState, text: string): readonly F
 /** The same state, marked as waiting on the route. */
 export function asInFlight(state: InterviewFlowState): InterviewFlowState {
   return state.phase === "asking" || state.phase === "submitting"
-    ? { phase: "submitting", question: state.question, answers: state.answers }
+    ? { phase: "submitting", question: state.question, answers: state.answers, asked: state.asked }
     : { phase: "loading", answers: [] };
 }
 
@@ -204,18 +266,149 @@ export function parseResponse(payload: unknown): InterviewResponse {
  * The state after the route answered the request that was in flight. `state` is the state the
  * request was sent from, so the answers already given carry forward into the next question.
  */
+/**
+ * The state after the route answered the request that was in flight. `state` is the state the
+ * request was sent from, so the answers already given carry forward into the next question.
+ *
+ * Two things carry forward that did not before (`ISS-14`): the questions already asked, and - once
+ * the session completes - the answers the card was worded from. Both come from `state`, so nothing
+ * here can invent a question or an answer the session did not have.
+ */
 export function afterResponse(state: InterviewFlowState, payload: unknown): InterviewFlowState {
   const response = parseResponse(payload);
+  const asked = askedOf(state);
 
   switch (response.status) {
     case "crisis":
       return { phase: "crisis" };
     case "complete":
-      return { phase: "complete", card: response.card, usedFallback: response.usedFallback };
+      return {
+        phase: "complete",
+        card: response.card,
+        usedFallback: response.usedFallback,
+        answers: answersOf(state),
+        asked,
+      };
     case "asking":
-      return { phase: "asking", question: response.question, answers: answersOf(state) };
+      return {
+        phase: "asking",
+        question: response.question,
+        answers: answersOf(state),
+        asked: withAsked(asked, response.question),
+      };
     default:
       return { phase: "failed", detail: response.detail };
   }
+}
+
+/* --------------------------------------------------------------- revising a finished session */
+
+/**
+ * A local, unsaved revision of a completed session (`ISS-14`): the questions it was asked, the
+ * answers as they now stand, and which question is on screen.
+ *
+ * A draft is UI state and nothing else. It is never sent as a whole, it is never stored, and the only
+ * way it can become a card is by going back through the route one answer at a time - which is what
+ * `replayPlan` builds.
+ */
+export type RevisionDraft = {
+  asked: readonly FlowQuestion[];
+  answers: readonly FlowAnswer[];
+  index: number;
+};
+
+/**
+ * A revision of a completed session, opened on its first question, or null when the state is not a
+ * completed session.
+ *
+ * The answers are taken exactly as the session gave them, in order, and are never re-worded: that is
+ * what "preserve all existing answers" means in code. A session whose questions and answers do not
+ * line up is refused rather than repaired, because a draft holding an answer with no question could
+ * only be shown by inventing one.
+ */
+export function revisionOf(state: InterviewFlowState): RevisionDraft | null {
+  if (state.phase !== "complete") return null;
+  if (state.answers.length === 0) return null;
+  if (state.asked.length < state.answers.length) return null;
+
+  return { asked: state.asked, answers: state.answers, index: 0 };
+}
+
+/** The draft on another question. The index stays inside the questions the session asked. */
+export function revisionAt(draft: RevisionDraft, index: number): RevisionDraft {
+  const last = Math.max(draft.asked.length - 1, 0);
+
+  return { ...draft, index: Math.min(Math.max(index, 0), last) };
+}
+
+/**
+ * The draft with the answer on screen replaced by `text`, exactly as typed. Only that answer moves:
+ * every other answer, and the question each one answers, is untouched.
+ */
+export function revisionWithAnswer(draft: RevisionDraft, text: string): RevisionDraft {
+  const question = draft.asked[draft.index];
+
+  if (question === undefined) return draft;
+
+  return {
+    ...draft,
+    answers: draft.answers.map((answer, index) =>
+      index === draft.index ? { questionId: question.id, text } : answer,
+    ),
+  };
+}
+
+/** The question the draft is showing, or null when it holds none. */
+export function revisionQuestion(draft: RevisionDraft): FlowQuestion | null {
+  return draft.asked[draft.index] ?? null;
+}
+
+/** The answer the draft is showing, exactly as it was given or last typed. */
+export function revisionAnswer(draft: RevisionDraft): string {
+  return draft.answers[draft.index]?.text ?? "";
+}
+
+/** How many questions the draft can be walked through. */
+export function revisionLength(draft: RevisionDraft): number {
+  return Math.min(draft.asked.length, draft.answers.length);
+}
+
+/** One step of a replay: the request to send, and the state it is sent from. */
+export type ReplayStep = { request: InterviewRequest; previous: InterviewFlowState };
+
+/**
+ * The requests that carry a revision back through the route, in order - one answer per request.
+ *
+ * **Every answer travels as `text`, and that is the whole point of the shape.** The route screens the
+ * words in `text` for crisis and never screens the `answers` array, so a revision sent as a batch
+ * would be the one path into a card the shield does not check. One answer per request means a revised
+ * answer is screened exactly as the answer it replaces was, and a revision that turns an answer into
+ * crisis language stops at the crisis screen like any other answer.
+ *
+ * `previous` is the state the step is sent from. It carries the answers up to and including the one
+ * being sent, so the last step completes the session and the route words the card from the revised
+ * answers. The region the user selected travels on every step, so the card keeps it.
+ */
+export function replayPlan(
+  draft: RevisionDraft,
+  regionLabel: string,
+  description: string,
+): readonly ReplayStep[] {
+  const length = revisionLength(draft);
+
+  return Array.from({ length }, (_unused, index) => {
+    const question = draft.asked[index];
+    const answer = draft.answers[index];
+
+    return {
+      request: { answers: draft.answers.slice(0, index), text: answer.text, regionLabel, description },
+      previous: {
+        phase: "asking",
+        question,
+        answers: draft.answers.slice(0, index + 1),
+        asked: draft.asked,
+      },
+    };
+  });
 }
 

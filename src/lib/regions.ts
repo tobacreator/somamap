@@ -203,6 +203,33 @@ export function zoneById(id: string): BodyZone | null {
   return ALL_ZONES.find((zone) => zone.id === id) ?? null;
 }
 
+/**
+ * The view and zone a label belongs to, searching the views in the order given, or null when none of
+ * them carries the label.
+ *
+ * This exists for one caller and one reason (`ISS-14`): the body map is remounted whenever the user
+ * returns to it to change the region, and a remount starts with nothing selected. Without this
+ * lookup the map would report "no region" the moment it came back, which would silently drop a
+ * region the user had already chosen - the opposite of preserving it. The caller passes the views the
+ * map actually offers, so a label that belongs only to a view the map does not draw (the side view's
+ * labels, for instance) is never restored onto a view that cannot name it.
+ *
+ * A label is still a lookup here, never an inference: the label either exists in one of the views
+ * given, or nothing is returned.
+ */
+export function viewForLabel(
+  label: string,
+  views: readonly BodyView[],
+): { view: BodyView; zone: BodyZone } | null {
+  for (const view of views) {
+    const zone = zonesForView(view).find((candidate) => candidate.label === label);
+
+    if (zone !== undefined) return { view, zone };
+  }
+
+  return null;
+}
+
 function contains(zone: BodyZone, x: number, y: number): boolean {
   return zone.rects.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
 }

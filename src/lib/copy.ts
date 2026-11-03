@@ -15,8 +15,14 @@ export const DISCLAIMER_LINE =
 
 /** The check-in start screen (blueprint Chapter 4.4). */
 export const CHECKIN_STEP_LABEL = "Check in";
+/**
+ * Shown for the moment before the check-in flow streams in: the flow needs the processing mode, and
+ * that is read on the server per request (Phase 2D copy follow-up). It is the same shape as the
+ * settings screen's own loading line.
+ */
+export const CHECKIN_LOADING = "Getting the check-in ready...";
 export const CHECKIN_PROMPT = "Where do you feel it?";
-export const CHECKIN_INSTRUCTION = "Tap the body map to name the region you noticed.";
+export const CHECKIN_INSTRUCTION = "Tap the body map, or type where it is.";
 
 /** The body map itself. */
 export const BODY_MAP_ARIA_LABEL = "Body map";
@@ -26,7 +32,29 @@ export const VIEW_BACK = "Back";
 export const REGION_READOUT_PREFIX = "Region";
 export const REGION_NONE_HINT = "Tap the body map to name a region.";
 export const REGION_MAP_NOTE =
-  "Region names come from a fixed body map: the same spot always names the same region. Nothing is generated, and nothing is saved yet.";
+  "Region names come from a fixed body map: the same spot always names the same region. Nothing is generated, and SomaMap does not save anything yet.";
+
+/**
+ * The location field (Phase 2H).
+ *
+ * The body map is a suggestion, not a vocabulary. A person may type anything from "left wrist" to "the
+ * spot under my right shoulder blade", and their words are kept as written - capitalisation and all -
+ * because the location is theirs. "Prefer not to say" is an answer in its own right, not a missing one,
+ * and the card names no location when it is chosen.
+ */
+export const LOCATION_FIELD_LABEL = "Where you feel it";
+export const LOCATION_FIELD_PLACEHOLDER = "Type where it is, or tap the map.";
+export const LOCATION_FIELD_HINT = "Your own words are fine - left wrist, jaw, or something else.";
+export const LOCATION_PREFER_NOT_TO_SAY = "Prefer not to say";
+export const LOCATION_PREFER_NOT_TO_SAY_NOTE = "Your card will not name a location.";
+
+/**
+ * The body map's compact control, shown only when the screen is too short to hold the map and the rest
+ * of the check-in screen at once (Phase 2H fix). The map is then one tap away, and nothing about it
+ * changes when it opens: the same fourteen tap targets, the same selection, the same readout.
+ */
+export const LOCATION_MAP_CHOOSE = "Choose on body map";
+export const LOCATION_MAP_HIDE = "Hide the body map";
 
 /** How a zone button introduces itself to a screen reader. */
 export function regionButtonLabel(label: string, selected: boolean): string {
@@ -37,7 +65,7 @@ export function regionButtonLabel(label: string, selected: boolean): string {
 export const CHECKIN_BOX_LABEL = "Anything you want to put into words";
 export const CHECKIN_BOX_PLACEHOLDER = "Type a few words, or leave it blank.";
 export const CHECKIN_BOX_SUBMIT = "Continue";
-export const CHECKIN_BOX_KEPT = "Your words stay on this screen. Nothing is saved yet.";
+export const CHECKIN_BOX_KEPT = "Your words stay on this screen. SomaMap does not save them yet.";
 
 /**
  * The interview - blueprint Chapter 5.3 (the Day-4 prompt) and Table 10 stage 2.
@@ -56,13 +84,82 @@ export const INTERVIEW_LOADING = "Getting the next question...";
 export const INTERVIEW_ERROR = "That question could not be loaded, and nothing was saved.";
 export const INTERVIEW_RETRY = "Try again";
 export const INTERVIEW_BACK = "Back to check-in";
-export const INTERVIEW_NOTE = "Your answers stay on this screen. Nothing is saved yet.";
+export const INTERVIEW_NOTE = "Your answers stay on this screen. SomaMap does not save them yet.";
 
 /**
  * Shown while the answer field is empty, so the disabled Continue button explains itself instead of
  * looking broken (Phase B; the only string this phase adds, approved by the product owner).
  */
 export const INTERVIEW_ANSWER_HINT = "Type a few words to continue.";
+
+/**
+ * The external processing disclosure and its acknowledgement (Phase 2D).
+ *
+ * The interview is worded by an external model provider, so the user's own words - the description
+ * they wrote, the region they tapped, and their answers - leave SomaMap for a third party. This copy
+ * says that plainly, names the provider, and asks for an explicit act before the first request.
+ *
+ * Three rules this wording keeps:
+ *
+ *   1. **No unverified claim.** Nothing here says what the provider does with the words: no
+ *      retention, deletion, training, storage, encryption or location statement appears, because
+ *      none of those has been independently verified for this build.
+ *   2. **No duplication of the fixed line.** Iron rule 5's sentence stays where it is, in
+ *      `DISCLAIMER_LINE`, rendered once per screen by the shell (`Screen` -> `DisclaimerFooter`).
+ *      Nothing here restates it, so the two cannot drift or double up.
+ *   3. **No prohibited stem.** None of rule 5's four words appears, and the word the fixed line
+ *      already owns is not used here either, so the copy scan (T5) stays clean.
+ */
+/**
+ * The external processing disclosure and its acknowledgement (Phase 2D).
+ *
+ * The disclosure says what the build the user is actually on does, and nothing else:
+ *
+ *   - **mock mode** (the shipped default) has no external provider at all, so its copy says so and
+ *     makes no claim that anything is sent to Baseten. Telling a user their words are going to a third
+ *     party when no request leaves the process would be false, and frightening for nothing;
+ *   - **live mode** names Baseten, names every word that goes there - the description the user wrote,
+ *     the region they tapped, and their answers - and says those details may be sent again as the
+ *     interview continues, because every turn re-sends them.
+ *
+ * Which set is shown is decided by the server (`modelMode()`), never guessed by the client, so the copy
+ * cannot disagree with what the running build does.
+ *
+ * Three rules both sets keep:
+ *
+ *   1. **No unverified claim.** Nothing here says what a provider does with the words: no retention,
+ *      deletion, training, storage, encryption or location statement appears, because none of those has
+ *      been independently verified for this build.
+ *   2. **No duplication of the fixed line.** Iron rule 5's sentence stays where it is, in
+ *      `DISCLAIMER_LINE`, rendered once per screen by the shell (`Screen` -> `DisclaimerFooter`).
+ *   3. **No prohibited stem.** None of rule 5's four words appears, so the copy scan (T5) stays clean.
+ */
+export type ProcessingDisclosure = { ai: string; data: string; acknowledge: string };
+
+/** What the user is told when nothing is sent anywhere: this build words the card itself. */
+export const EXTERNAL_PROCESSING_MOCK: ProcessingDisclosure = {
+  ai: "In this build the interview is worded by SomaMap itself, with no external provider involved.",
+  data: "The description you wrote, the location you chose or typed, and your answers are used to word your card. They are not sent to Baseten or to any other external provider.",
+  acknowledge: "I understand - start the interview",
+};
+
+/** What the user is told when their words do go to Baseten: who, which words, and how often. */
+export const EXTERNAL_PROCESSING_LIVE: ProcessingDisclosure = {
+  ai: "The interview is worded by an AI model from Baseten, an external provider.",
+  data: "The description you wrote, the location you chose or typed, and your answers are sent to Baseten to word your card, and they may be sent again as the interview goes on.",
+  acknowledge: "I understand - send my words to Baseten",
+};
+
+/** The disclosure for a mode, by mode. The server decides which one is shown. */
+export const EXTERNAL_PROCESSING_DISCLOSURE: Record<"mock" | "live", ProcessingDisclosure> = {
+  mock: EXTERNAL_PROCESSING_MOCK,
+  live: EXTERNAL_PROCESSING_LIVE,
+};
+
+export const EXTERNAL_PROCESSING_TITLE = "Before the interview starts";
+export const EXTERNAL_PROCESSING_DECLINE = "Not now";
+export const EXTERNAL_PROCESSING_DECLINED =
+  "Nothing was sent. Your words are still here, and you can start the interview whenever you want.";
 
 /**
  * The static crisis screen (iron rule 4, blueprint Table 5).
@@ -79,6 +176,35 @@ export const CRISIS_BACK = "Back to check-in";
 /** The card view (blueprint Section 6.1: the five schema fields, in a calm layout). */
 export const CARD_TITLE = "Your card";
 export const CARD_NOT_ANSWERED = "Not answered yet";
+
+/**
+ * What the user can do with a finished card (`ISS-14`).
+ *
+ * The card used to be a dead end: once it was on screen there was no way back into the answers, no
+ * way to change the region, and no way to begin again. These are those three actions, plus the
+ * confirmation the restart asks for, because starting again throws the answers on screen away.
+ *
+ * Iron rule 5: none of the four words it forbids appears in any of these, and nothing here comments
+ * on what the user described.
+ */
+export const CARD_EDIT = "Edit my answers";
+export const CARD_CHANGE_REGION = "Change the region";
+export const CARD_START_NEW = "Start a new check-in";
+export const CARD_START_NEW_CONFIRM =
+  "Start a new check-in? This clears the answers on this screen, and nothing was saved.";
+export const CARD_START_NEW_KEEP = "Keep this card";
+
+/**
+ * Editing the answers already given: the step label, the two ways to move between the questions, and
+ * the two ways out. The question wording itself is never here - it is the bank's own text, which the
+ * session was asked, so an edit screen can only ever show a question the user was actually asked.
+ */
+export const EDIT_STEP_LABEL = "Edit your answers";
+export const EDIT_PREVIOUS = "Previous question";
+export const EDIT_NEXT = "Next question";
+export const EDIT_SAVE = "Save changes";
+export const EDIT_CANCEL = "Cancel";
+export const EDIT_SAVING = "Saving your changes...";
 
 /** Settings and the delete-everything switch (blueprint Chapter 6.1 and Table 12 row 8). */
 export const SETTINGS_TITLE = "Settings";
@@ -105,6 +231,40 @@ export const DELETE_EVERYTHING_DONE = "Everything was removed. Your account is s
 export const DELETE_EVERYTHING_PARTIAL =
   "Some of it could not be removed, and nothing else was touched. Try again.";
 export const DELETE_EVERYTHING_RETRY = "Try again";
+
+/**
+ * The journal - the user's own saved cards, and counts of the words on them.
+ *
+ * Iron rule 3 lives in this wording: the journal counts the user's own words and shows the user's own
+ * sentences, and nothing here says what any of it means. No line comments on a card, names a cause, or
+ * draws a conclusion; the note beside the counts says out loud that the counting is all that happens.
+ *
+ * Iron rule 5: none of the four words it forbids appears below.
+ */
+export const JOURNAL_STEP_LABEL = "Journal";
+export const JOURNAL_TITLE = "Your journal";
+export const JOURNAL_INTRO = "The cards you saved, newest first. These are your own words.";
+export const JOURNAL_LOADING = "Getting your journal ready...";
+export const JOURNAL_LOAD_FAILED = "Your journal could not be loaded. Nothing was changed.";
+export const JOURNAL_EMPTY_TITLE = "No saved cards yet";
+export const JOURNAL_EMPTY_BODY = "Finish a check-in and its card is saved here, with the words you chose.";
+export const JOURNAL_START_CHECKIN = "Start a new check-in";
+export const JOURNAL_COUNT = (count: number): string => (count === 1 ? "1 saved card" : `${count} saved cards`);
+export const JOURNAL_WORDS_TITLE = "Words you chose";
+export const JOURNAL_WORDS_NOTE = "Counted from the words on your own cards, and nothing else. SomaMap does not read them.";
+export const JOURNAL_WORDS_EMPTY = "No words saved yet.";
+export const JOURNAL_REGIONS_TITLE = "Places you named";
+export const JOURNAL_REGIONS_EMPTY = "No places named yet.";
+export const JOURNAL_OPEN = "Open this card";
+export const JOURNAL_BACK = "Back to your journal";
+export const JOURNAL_NOT_FOUND = "That card is not here.";
+
+/** What the interview screen says about saving, so a failed save is never silent. */
+export const JOURNAL_CARD_SAVING = "Saving your card...";
+export const JOURNAL_CARD_SAVED = "Saved to your journal.";
+export const JOURNAL_CARD_SAVE_FAILED =
+  "This card could not be saved. Nothing was lost - it is still on this screen.";
+export const JOURNAL_VIEW = "View your journal";
 
 /** Sign-in - the minimum session the delete-everything action needs. */
 export const SIGNIN_TITLE = "Sign in";

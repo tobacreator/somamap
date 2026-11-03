@@ -1,9 +1,24 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { mockCardFrom } from "./cardFidelity.ts";
-import { cardViewForPayload } from "./cardView.ts";
-import { interviewStep, questionForStep, type InterviewStepResult } from "./interview.ts";
+import { isComparisonShaped, mockCardFrom } from "./cardFidelity.ts";
+import { cardViewForPayload, displayRows } from "./cardView.ts";
+import { interviewStep as stateMachine, questionForStep, type InterviewDeps, type InterviewStepResult } from "./interview.ts";
+import { acknowledgementFor } from "./externalProcessing.ts";
+
+/**
+ * A turn as a real client sends it (Phase 2D): the interview's own fields, plus the acknowledgement of
+ * the provider the user was told about before the interview started. `stateMachine` is the raw call,
+ * and the tests that prove what happens *without* an acknowledgement use it directly.
+ */
+function acknowledgedTurn(body: unknown, depsForTurn: InterviewDeps): Promise<InterviewStepResult> {
+  const acknowledged =
+    body !== null && typeof body === "object" && !Array.isArray(body)
+      ? { ...body, acknowledgedProvider: acknowledgementFor(depsForTurn.mode) }
+      : body;
+
+  return stateMachine(acknowledged, depsForTurn);
+}
 import { mockAdapter } from "./models.ts";
 
 /**
@@ -29,15 +44,20 @@ import { mockAdapter } from "./models.ts";
 
 const DEPS = { adapter: mockAdapter, logger: () => {}, mode: "mock" as const };
 
-/** Drive a full three-answer session through the real state machine. */
-function runSession(answers: readonly string[], regionLabel = "chest"): InterviewStepResult {
-  let result = interviewStep({ answers: [], regionLabel }, DEPS);
+/**
+ * Drive a full three-answer session through the real state machine.
+ *
+ * Asynchronous because the state machine is (Phase 1, the async foundation): it awaits the
+ * wording of the card, so every caller of this helper awaits it too.
+ */
+async function runSession(answers: readonly string[], regionLabel = "chest"): Promise<InterviewStepResult> {
+  let result = await acknowledgedTurn({ answers: [], regionLabel }, DEPS);
 
   for (const text of answers) {
     const previous =
       result.status === "asking" || result.status === "complete" ? result.answers : [];
 
-    result = interviewStep(
+    result = await acknowledgedTurn(
       {
         answers: previous.map((answer: { questionId: string; text: string }) => ({
           questionId: answer.questionId,
@@ -59,7 +79,10 @@ function rowFor(card: unknown, field: string) {
 }
 
 const COMPARISON = "It feels like a tight band.";
+/** A whole answer that carries a duration expression: the row holds the expression, not the sentence. */
 const DURATION = "It has been there for about three days now.";
+/** What `How long` shows for `DURATION` - the user's own phrase, quoted verbatim. */
+const DURATION_EXPRESSION = "about three days";
 
 describe("CF-01..CF-04: a submitted comparison and a submitted duration reach their own fields", () => {
   it("CF-01: a comparison answer lands verbatim in intensity_metaphor", () => {
@@ -69,10 +92,10 @@ describe("CF-01..CF-04: a submitted comparison and a submitted duration reach th
     assert.equal(card.duration, "", "a comparison is not a duration");
   });
 
-  it("CF-02: a duration answer lands verbatim in duration", () => {
+  it("CF-02: a duration answer's expression lands in duration, quoted verbatim", () => {
     const card = mockCardFrom({ answers: [{ questionId: "Q12", text: DURATION }], regionLabel: "chest" });
 
-    assert.equal(card.duration, DURATION, "the duration must be copied verbatim");
+    assert.equal(card.duration, DURATION_EXPRESSION, "the user's own expression, quoted verbatim");
     assert.equal(card.intensity_metaphor, "", "a duration is not a comparison");
   });
 
@@ -86,7 +109,7 @@ describe("CF-01..CF-04: a submitted comparison and a submitted duration reach th
     });
 
     assert.equal(card.intensity_metaphor, COMPARISON);
-    assert.equal(card.duration, DURATION);
+    assert.equal(card.duration, DURATION_EXPRESSION);
     assert.equal(card.location_label, "upper back");
   });
 
@@ -99,7 +122,7 @@ describe("CF-01..CF-04: a submitted comparison and a submitted duration reach th
       regionLabel: "thighs",
     });
 
-    assert.equal(card.duration, DURATION);
+    assert.equal(card.duration, DURATION_EXPRESSION);
     assert.equal(card.intensity_metaphor, COMPARISON);
     assert.equal(card.location_label, "thighs");
   });
@@ -124,14 +147,16 @@ describe("CF-05..CF-06: an answer the user did not give is never invented", () =
 });
 
 describe("CF-07: the whole path, through the real state machine", () => {
-  it("CF-07: a session that volunteers both fills both card rows", () => {
-    const result = runSession(["It spreads across my upper back.", COMPARISON, DURATION]);
+  it("CF-07: a session that volunteers both fills both card rows", async () => {
+    // The duration is the first answer: the comparison question's answer is never read as a duration
+    // (`ISS-16/E`), so a duration has to come from a question that was not asking for a comparison.
+    const result = await runSession([DURATION, COMPARISON, "It spreads across my upper back."]);
 
     assert.equal(result.status, "complete");
     if (result.status !== "complete") return;
 
     assert.equal(result.card.intensity_metaphor, COMPARISON);
-    assert.equal(result.card.duration, DURATION);
+    assert.equal(result.card.duration, DURATION_EXPRESSION);
     assert.equal(result.card.location_label, "chest");
 
     for (const field of ["location_label", "quality_words", "intensity_metaphor", "duration", "user_own_sentence"]) {
@@ -142,7 +167,7 @@ describe("CF-07: the whole path, through the real state machine", () => {
 
 
 describe("CF-08..CF-10: reported defects, characterised rather than fixed", () => {
-  it("CF-08 (ISS-02, resolved): the session asks the approved comparison question", () => {
+  it("CF-08 (ISS-02, resolved): the session asks the approved comparison question", async () => {
     // ISS-02's resolution: the third question is now the owner-approved comparison question, so the
     // session asks for the comparison the card's intensity_metaphor row needs. The wording is the
     // owner's, verbatim, and it comes from the bank like every other question.
@@ -161,7 +186,7 @@ describe("CF-08..CF-10: reported defects, characterised rather than fixed", () =
     // The consequence, measured: a plain three-answer session now fills the comparison row from the
     // comparison question's own answer, and the duration row stays honestly empty because no question
     // asks for a duration (the owner's decision).
-    const result = runSession(["It stays in one spot.", "Tight.", "A heavy blanket resting on my chest."]);
+    const result = await runSession(["It stays in one spot.", "Tight.", "A heavy blanket resting on my chest."]);
 
     assert.equal(result.status, "complete");
     if (result.status !== "complete") return;
@@ -172,7 +197,9 @@ describe("CF-08..CF-10: reported defects, characterised rather than fixed", () =
     assert.equal(rowFor(result.card, "intensity_metaphor")?.answered, true);
   });
 
-  it("CF-16: the comparison question's answer is the metaphor even without the word 'like'", () => {
+  it("CF-16: the comparison question's answer is the metaphor when it is comparison-shaped", () => {
+    // `ISS-16/D` made this conditional rather than automatic: the answer to the comparison question
+    // still fills the row, but only because it describes something. The refusals are CF-22 to CF-24.
     const card = mockCardFrom({
       answers: [{ questionId: "Q14", text: "A heavy blanket resting on my chest." }],
       regionLabel: "chest",
@@ -233,10 +260,14 @@ describe("CF-08..CF-10: reported defects, characterised rather than fixed", () =
   });
 
   it("CF-09c (ISS-03): a genuine duration still reaches the duration row", () => {
-    for (const phrase of ["For about three hours.", "It has been present for three hours."]) {
+    // The row holds the expression inside the answer, quoted verbatim, not the sentence around it.
+    for (const [phrase, expression] of [
+      ["For about three hours.", "about three hours"],
+      ["It has been present for three hours.", "three hours"],
+    ]) {
       const card = mockCardFrom({ answers: [{ questionId: "Q12", text: phrase }], regionLabel: "chest" });
 
-      assert.equal(card.duration, phrase, `${JSON.stringify(phrase)} is a genuine duration, quoted verbatim`);
+      assert.equal(card.duration, expression, `${JSON.stringify(phrase)} carries ${JSON.stringify(expression)}`);
     }
   });
 
@@ -276,28 +307,407 @@ describe("CF-08..CF-10: reported defects, characterised rather than fixed", () =
   });
 
   it("CF-19 (ISS-05, fixed): the quoted sentence does not repeat the duration row", () => {
+    // The duration comes from a question that was not asking for a comparison (`ISS-16/E`), so that it
+    // can reach the duration row at all; the sentence is then the longest of what is left.
     const card = mockCardFrom({
       answers: [
-        { questionId: "Q1", text: "It spreads across my upper back." },
+        { questionId: "Q1", text: "It spreads across my upper back and down both arms." },
         { questionId: "Q4", text: "It feels like a tight band." },
-        { questionId: "Q14", text: "It has been there for about three days now." },
+        { questionId: "Q12", text: "It has been there for about three days now." },
       ],
       regionLabel: "upper back",
     });
 
-    assert.equal(card.duration, "It has been there for about three days now.");
-    assert.equal(card.user_own_sentence, "It spreads across my upper back.", "the duration is not repeated");
+    assert.equal(card.duration, DURATION_EXPRESSION);
+    assert.equal(
+      card.user_own_sentence,
+      "It spreads across my upper back and down both arms.",
+      "the duration is not repeated",
+    );
     assert.notEqual(card.user_own_sentence, card.duration);
   });
 
-  it("CF-20 (ISS-05): a one-answer session still quotes that answer", () => {
+  it("CF-20 (ISS-05, ISS-16/B): a one-answer session is never repeated across two rows", () => {
     const card = mockCardFrom({
       answers: [{ questionId: "Q1", text: "It has been like this for three days." }],
       regionLabel: "chest",
     });
 
-    assert.equal(card.duration, "It has been like this for three days.");
-    assert.equal(card.user_own_sentence, "It has been like this for three days.", "a repeat beats an empty row");
+    // The duration row holds the expression, so the two rows no longer hold the same text: the
+    // sentence keeps the user's whole answer, and `How long` keeps the expression inside it.
+    assert.equal(card.duration, "three days");
+
+    assert.equal(card.user_own_sentence, "It has been like this for three days.");
+    assert.notEqual(card.user_own_sentence, card.duration, "the two rows never show the same text");
+    assert.equal(rowFor(card, "duration")?.answered, true);
+    assert.equal(rowFor(card, "user_own_sentence")?.answered, true);
+  });
+});
+
+describe("ISS-16: the owner-approved fidelity decisions", () => {
+  /** The description a session wrote on the check-in screen before any question was asked. */
+  const DESCRIPTION = "A heavy band across my chest since this morning.";
+
+  it("CF-21 (B): the comparison and the sentence are never the same text", () => {
+    const card = mockCardFrom({
+      answers: [
+        { questionId: "Q1", text: "tight and heavy" },
+        { questionId: "Q4", text: "like a scarf knotted too tight" },
+        { questionId: "Q14", text: "since this morning" },
+      ],
+      regionLabel: "chest",
+    });
+
+    assert.equal(card.intensity_metaphor, "like a scarf knotted too tight");
+    assert.equal(card.user_own_sentence, "since this morning");
+    assert.notEqual(card.user_own_sentence, card.intensity_metaphor);
+    assert.notEqual(card.user_own_sentence, card.duration);
+    assert.notEqual(card.intensity_metaphor, card.duration);
+  });
+
+  it("CF-22 (D): 'Maybe' cannot populate the metaphor", () => {
+    const card = mockCardFrom({ answers: [{ questionId: "Q14", text: "Maybe" }], regionLabel: "chest" });
+
+    assert.equal(card.intensity_metaphor, "");
+    assert.equal(rowFor(card, "intensity_metaphor")?.display, "Not answered yet");
+  });
+
+  it("CF-23 (D, E): 'Since this morning' is neither a metaphor nor a duration, but is not lost", () => {
+    const card = mockCardFrom({ answers: [{ questionId: "Q14", text: "Since this morning" }], regionLabel: "chest" });
+
+    assert.equal(card.intensity_metaphor, "", "a time phrase is not a comparison");
+    assert.equal(card.duration, "", "the comparison question's answer is not read as a duration");
+    // The user's words are still on the card - in the row that does not claim they said something else.
+    assert.equal(card.user_own_sentence, "Since this morning");
+  });
+
+  it("CF-24 (D): 'All week' cannot populate the metaphor either", () => {
+    const card = mockCardFrom({ answers: [{ questionId: "Q14", text: "All week" }], regionLabel: "chest" });
+
+    assert.equal(card.intensity_metaphor, "");
+    assert.equal(rowFor(card, "intensity_metaphor")?.display, "Not answered yet");
+  });
+
+  it("CF-25 (D): a comparison-shaped answer to the comparison question still fills the row", () => {
+    const card = mockCardFrom({
+      answers: [{ questionId: "Q14", text: "Like a scarf knotted too tight" }],
+      regionLabel: "chest",
+    });
+
+    assert.equal(card.intensity_metaphor, "Like a scarf knotted too tight");
+    assert.equal(rowFor(card, "intensity_metaphor")?.answered, true);
+  });
+
+  it("CF-26 (E): a comparison answer is never mislabelled as a duration", () => {
+    const card = mockCardFrom({
+      answers: [
+        { questionId: "Q1", text: "It stays in one spot." },
+        { questionId: "Q4", text: "Tight." },
+        { questionId: "Q14", text: "It has been like this for three days." },
+      ],
+      regionLabel: "chest",
+    });
+
+    // It carries a time expression, but it answered a question that asked for a comparison.
+    assert.equal(card.duration, "");
+    assert.equal(rowFor(card, "duration")?.display, "Not answered yet");
+    assert.equal(card.intensity_metaphor, "It has been like this for three days.");
+  });
+
+  it("CF-27 (C): no time expression reaches quality_words, alone or inside a sentence", () => {
+    for (const phrase of ["this morning", "yesterday", "all week", "for two hours", "on and off"]) {
+      const card = mockCardFrom({ answers: [{ questionId: "Q1", text: phrase }], regionLabel: "chest" });
+
+      assert.deepEqual(card.quality_words, [], `${JSON.stringify(phrase)} has no quality word in it`);
+      assert.equal(rowFor(card, "quality_words")?.display, "Not answered yet");
+    }
+
+    const embedded = mockCardFrom({
+      answers: [{ questionId: "Q1", text: "it started recently and is still here" }],
+      regionLabel: "chest",
+    });
+
+    assert.deepEqual(embedded.quality_words, ["started"], "the time word goes, the description stays");
+  });
+
+  it("CF-28 (C): a descriptive word beside a time expression is not removed with it", () => {
+    const card = mockCardFrom({ answers: [{ questionId: "Q1", text: "a heavy band all week" }], regionLabel: "chest" });
+
+    assert.deepEqual(card.quality_words, ["heavy", "band"]);
+  });
+
+  it("CF-29 (16): one repeated answer does not fill three rows", () => {
+    const card = mockCardFrom({
+      answers: [
+        { questionId: "Q1", text: "tight" },
+        { questionId: "Q4", text: "tight" },
+        { questionId: "Q14", text: "tight" },
+      ],
+      regionLabel: "chest",
+    });
+
+    // Correction 3: the session's whole text is the one word "tight", and "In your words" already
+    // shows it. A vocabulary row holding exactly the words of a phrase the card shows in full adds
+    // nothing, so it is left unanswered rather than repeating the row below it. The word is not lost:
+    // it is still quoted verbatim as the sentence.
+    assert.deepEqual(card.quality_words, [], "the row does not repeat the sentence in full");
+    assert.equal(card.intensity_metaphor, "", "a single word is not a comparison");
+    assert.equal(card.duration, "");
+    assert.equal(card.user_own_sentence, "tight");
+  });
+
+  it("CF-29b (16): an empty session still produces an empty card", () => {
+    const card = mockCardFrom({
+      answers: [
+        { questionId: "Q1", text: "" },
+        { questionId: "Q4", text: "   " },
+        { questionId: "Q14", text: "" },
+      ],
+      regionLabel: "chest",
+    });
+
+    assert.deepEqual(card, {
+      location_label: "chest",
+      quality_words: [],
+      intensity_metaphor: "",
+      duration: "",
+      user_own_sentence: "",
+    });
+  });
+
+  it("CF-29c (16): conflicting answers each land in the row their own content earns", () => {
+    const card = mockCardFrom({
+      answers: [
+        { questionId: "Q1", text: "since yesterday" },
+        { questionId: "Q4", text: "like a stone sitting there" },
+        { questionId: "Q14", text: "maybe" },
+      ],
+      regionLabel: "chest",
+    });
+
+    assert.equal(card.duration, "since yesterday");
+    assert.equal(card.intensity_metaphor, "like a stone sitting there");
+    // The only text left is the comparison question's own answer, quoted as itself - not promoted into
+    // a row it does not belong in, and not rewritten to make a longer sentence.
+    assert.equal(card.user_own_sentence, "maybe");
+  });
+
+  it("CF-30 (A, correction 1): the description reaches the card, quoted verbatim", () => {
+    const answers = [
+      { questionId: "Q1", text: "tight" },
+      { questionId: "Q4", text: "like a scarf" },
+      { questionId: "Q14", text: "since this morning" },
+    ];
+
+    const withDescription = mockCardFrom({ answers, regionLabel: "chest", description: DESCRIPTION });
+    const without = mockCardFrom({ answers, regionLabel: "chest" });
+
+    assert.equal(withDescription.user_own_sentence, DESCRIPTION, "the description is quoted exactly");
+    assert.notEqual(without.user_own_sentence, DESCRIPTION, "and only when the user wrote one");
+
+    // It does not displace an answer from a row that answer earned, and it is never rewritten or merged
+    // with one.
+    assert.equal(withDescription.intensity_metaphor, without.intensity_metaphor);
+    assert.equal(withDescription.duration, without.duration);
+  });
+
+  it("CF-30b (A): an absent or blank description changes nothing", () => {
+    const answers = [{ questionId: "Q1", text: "a heavy band" }];
+    const plain = mockCardFrom({ answers, regionLabel: "chest" });
+
+    assert.deepEqual(mockCardFrom({ answers, regionLabel: "chest", description: "" }), plain);
+    assert.deepEqual(mockCardFrom({ answers, regionLabel: "chest", description: "   " }), plain);
+  });
+
+  it("CF-31 (correction 1): a longer answer never displaces the description", () => {
+    // The owner's decision: the description is the user's own first account of the sensation, so the
+    // card quotes it whenever there is one - it may not be swapped for a longer answer.
+    const longer = "It spreads across my upper back and down both arms and it is still there.";
+    const description = "A heavy band, right here!";
+
+    const card = mockCardFrom({
+      answers: [
+        { questionId: "Q1", text: longer },
+        { questionId: "Q4", text: "like a scarf knotted too tight" },
+        { questionId: "Q14", text: "steady" },
+      ],
+      regionLabel: "chest",
+      description,
+    });
+
+    assert.ok(longer.length > description.length, "the answer really is the longer text");
+    assert.equal(card.user_own_sentence, description, "the description is quoted, not the longer answer");
+    // Verbatim: punctuation, capitalisation and sentence structure all survive, and nothing is merged
+    // with an answer.
+    assert.equal(card.user_own_sentence, "A heavy band, right here!");
+    assert.equal(card.intensity_metaphor, "like a scarf knotted too tight");
+  });
+
+  it("CF-31b (correction 1): the description is copied whole, trimmed only around it", () => {
+    const description = "  A heavy band, right here! Not going away.  ";
+
+    const card = mockCardFrom({
+      answers: [
+        { questionId: "Q1", text: "It spreads across my upper back and down both arms." },
+        { questionId: "Q4", text: "like a scarf knotted too tight" },
+        { questionId: "Q14", text: "steady" },
+      ],
+      regionLabel: "chest",
+      description,
+    });
+
+    assert.equal(card.user_own_sentence, "A heavy band, right here! Not going away.");
+    assert.equal(card.user_own_sentence, description.trim(), "never reworded, re-punctuated or merged");
+  });
+
+  it("CF-32 (correction 3): words that only repeated the comparison are not shown again", () => {
+    // The owner's UAT: the comparison row and the words row carried the same words. A word whose only
+    // source is the phrase now shown under "It feels like" adds no vocabulary the card does not
+    // already show in full, so it is not listed a second time. A word that also came from another
+    // answer stays, because that answer is nowhere else on the card.
+    const card = mockCardFrom({
+      answers: [
+        { questionId: "Q1", text: "a dull ache" },
+        { questionId: "Q4", text: "like a tight band around my chest" },
+      ],
+      regionLabel: "chest",
+    });
+
+    assert.equal(card.intensity_metaphor, "like a tight band around my chest");
+    assert.deepEqual(
+      card.quality_words,
+      ["dull", "ache"],
+      '"tight", "band" and "chest" are already on the card, in full, in the row above',
+    );
+    assert.equal(card.user_own_sentence, "a dull ache");
+  });
+
+  it("CF-33 (correction 3, correction 4): \"big bang\" is neither a comparison nor a word list", () => {
+    // The owner's UAT, reproduced. The two-word answer to the comparison question is refused as a
+    // comparison (correction 4), so that row stays honestly empty; and because the same two words are
+    // then all the card would show of the answer, the vocabulary row does not spell it out again
+    // (correction 3). Nothing is lost - the user's own words are quoted verbatim under "In your words".
+    const card = mockCardFrom({
+      answers: [{ questionId: "Q14", text: "big bang" }],
+      regionLabel: "chest",
+    });
+
+    assert.equal(card.intensity_metaphor, "", "a bare two-word phrase is not a comparison");
+    assert.deepEqual(card.quality_words, [], "the row does not reproduce the sentence in full");
+    assert.equal(card.user_own_sentence, "big bang", "the user's words are still on the card, verbatim");
+    assert.equal(card.duration, "", "and nothing was invented for the row that was never asked about");
+  });
+
+  it("CF-34 (correction 4): the comparison contract's floor, and what it still accepts", () => {
+    // Each refusal is for what the answer *lacks* - a resemblance, a description, enough structure -
+    // never for looking unusual.
+    for (const refused of ["big bang", "Maybe", "Since this morning", "All week", "not sure"]) {
+      assert.equal(isComparisonShaped(refused), false, `${JSON.stringify(refused)} is not a comparison`);
+    }
+
+    // A stated resemblance is a resemblance at any length, and a description only has to carry enough
+    // words to describe something.
+    for (const accepted of [
+      "like a big bang",
+      "Like a scarf knotted too tight",
+      "A heavy blanket resting on my chest.",
+    ]) {
+      assert.equal(isComparisonShaped(accepted), true, `${JSON.stringify(accepted)} is a comparison`);
+    }
+
+    // The floor is about structure, not about meaning, and it is deliberately not a parser: a
+    // three-word phrase passes it whatever its words are. Judging whether "a big bang" describes a
+    // sensation is a vocabulary question, and it belongs to the Vocabulary Library task - not here.
+    assert.equal(isComparisonShaped("a big bang"), true, "three words pass the floor");
+  });
+});
+
+describe("CF-35: the duration row holds the expression, not the sentence around it", () => {
+  /**
+   * The examples this correction was specified with, and what `How long` must show for each.
+   *
+   * One row differs from the brief's table by a single character: for "Since yesterday morning." the
+   * brief wrote "since yesterday morning", while the row shows **"Since yesterday morning"**. The row
+   * quotes the user's own words, and this card never re-cases a word it was given - the capital is
+   * theirs, exactly as `user_own_sentence` keeps it. Dropping it would be a one-line change in
+   * `durationExpressionIn` if the owner prefers the sentence-initial capital removed.
+   */
+  const EXAMPLES: readonly (readonly [string, string])[] = [
+    ["It has been there for about three days now.", "about three days"],
+    ["I've felt it for two weeks.", "two weeks"],
+    ["Since yesterday morning.", "Since yesterday morning"],
+    ["It started around 6 AM.", "around 6 AM"],
+    ["on and off for weeks", "weeks"],
+    ["It has been happening on and off for several weeks.", "several weeks"],
+    ["It comes and goes.", ""],
+    ["It stays in one spot.", ""],
+  ];
+
+  it("shows the expression the user wrote, and nothing else", () => {
+    for (const [answer, expected] of EXAMPLES) {
+      const card = mockCardFrom({ answers: [{ questionId: "Q1", text: answer }], regionLabel: "chest" });
+
+      assert.equal(card.duration, expected, `${JSON.stringify(answer)} -> ${JSON.stringify(expected)}`);
+    }
+  });
+
+  it("names the time unit, not the pattern the sensation follows", () => {
+    /**
+     * "on and off" describes how a sensation behaves; it does not say how long it has been there. The
+     * row must name the unit, so a pattern is never the anchor - and an answer that mentions only the
+     * pattern leaves the row honestly empty rather than claiming a length of time.
+     */
+    for (const [answer, expected] of [
+      ["on and off for weeks", "weeks"],
+      ["It has been happening on and off for several weeks.", "several weeks"],
+      ["It has been on and off.", ""],
+      ["It comes and goes.", ""],
+    ]) {
+      const card = mockCardFrom({ answers: [{ questionId: "Q1", text: answer }], regionLabel: "chest" });
+
+      assert.equal(card.duration, expected, `${JSON.stringify(answer)} -> ${JSON.stringify(expected)}`);
+    }
+  });
+
+  it("never shows a word the user did not write", () => {
+    for (const [answer] of EXAMPLES) {
+      const card = mockCardFrom({ answers: [{ questionId: "Q1", text: answer }], regionLabel: "chest" });
+
+      if (card.duration.length === 0) continue;
+
+      assert.equal(answer.includes(card.duration), true, `${card.duration} is inside ${JSON.stringify(answer)}`);
+    }
+  });
+
+  it("guesses nothing from an answer that carries no time expression", () => {
+    for (const answer of [
+      "It comes and goes.",
+      "It stays in one spot.",
+      "Tight and heavy.",
+      // The ISS-03 regression phrases: a bare "for" is not a duration, and neither is a sentence
+      // that merely contains one.
+      "I have been waiting for it to pass.",
+      "I am looking for a word for it.",
+      "It hurts when I reach for things.",
+    ]) {
+      const card = mockCardFrom({ answers: [{ questionId: "Q1", text: answer }], regionLabel: "chest" });
+
+      assert.equal(card.duration, "", `${JSON.stringify(answer)} carries no duration`);
+    }
+  });
+
+  it("leaves the row empty and hidden when there is no expression to show", () => {
+    for (const [answer, expected] of EXAMPLES) {
+      if (expected.length > 0) continue;
+
+      const card = mockCardFrom({ answers: [{ questionId: "Q1", text: answer }], regionLabel: "chest" });
+      const rendered = displayRows(cardViewForPayload(card));
+
+      assert.equal(card.duration, "");
+      assert.equal(rowFor(card, "duration")?.display, "Not answered yet");
+      assert.equal(rendered.some((row) => row.field === "duration"), false, "the unanswered row is hidden");
+      assert.equal(rendered.length, 4, "the other four rows still render");
+    }
   });
 });
 

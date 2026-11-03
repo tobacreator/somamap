@@ -80,3 +80,20 @@ export function cardViewForPayload(payload: unknown): CardViewModel {
     disclaimer: DISCLAIMER_LINE,
   };
 }
+
+/**
+ * The rows the card screen actually renders (correction 2, after the owner's UAT).
+ *
+ * Four of the five rows show "Not answered yet" while their answer has not arrived, because a session
+ * can supply all four. The duration row is different: the shipped three questions never ask how long,
+ * so that row would carry "Not answered yet" permanently - a missing answer to a question the user was
+ * never asked. It is **hidden** instead, until a duration has actually been collected. Nothing is
+ * displayed in its place, and nothing else changes: the schema still carries five fields, `rows` still
+ * holds all five, and the other four rows keep their explicit unanswered state.
+ *
+ * The rule is here, in the render model, rather than in the component, so what the screen shows stays
+ * decided in one place and can be tested without a browser.
+ */
+export function displayRows(view: CardViewModel): readonly CardRow[] {
+  return view.rows.filter((row) => row.field !== "duration" || row.answered);
+}

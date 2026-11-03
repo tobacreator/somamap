@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { CARD_FIELD_LABELS, CARD_NOT_ANSWERED, DISCLAIMER_LINE } from "./copy.ts";
-import { CARD_FIELD_ORDER, PLACEHOLDER_VALUES, cardViewForPayload } from "./cardView.ts";
+import { CARD_FIELD_ORDER, PLACEHOLDER_VALUES, cardViewForPayload, displayRows } from "./cardView.ts";
 import { FALLBACK_CARD, sensationCardSchema } from "./schema.ts";
 
 /**
@@ -97,5 +97,49 @@ describe("card view", () => {
 
   it("renders the fixed line on the card", () => {
     assert.equal(cardViewForPayload(COMPLETED_CARD).disclaimer, DISCLAIMER_LINE);
+  });
+});
+
+/**
+ * Correction 2, after the owner's UAT: the shipped three questions never ask how long, so a session's
+ * card carries an empty duration. That row is hidden rather than shown as a permanent "Not answered
+ * yet" - a missing answer to a question the user was never asked - while every other row keeps its
+ * explicit unanswered state.
+ */
+describe("the rows the card screen renders (correction 2)", () => {
+  it("hides the duration row while no duration has been collected", () => {
+    const view = cardViewForPayload({ ...COMPLETED_CARD, duration: "" });
+    const shown = displayRows(view);
+
+    assert.deepEqual(
+      shown.map((row) => row.field),
+      ["location_label", "quality_words", "intensity_metaphor", "user_own_sentence"],
+      "the duration row is not rendered at all",
+    );
+
+    // Nothing is displayed in its place, and the model itself still holds all five fields.
+    assert.equal(view.rows.length, 5);
+    assert.equal(view.rows.find((row) => row.field === "duration")?.display, CARD_NOT_ANSWERED);
+    assert.equal(
+      shown.some((row) => row.display === CARD_NOT_ANSWERED && row.field === "duration"),
+      false,
+    );
+  });
+
+  it("shows the duration row, verbatim, once a duration has been collected", () => {
+    const shown = displayRows(cardViewForPayload(COMPLETED_CARD));
+
+    assert.deepEqual(shown.map((row) => row.field), [...CARD_FIELD_ORDER]);
+    assert.equal(shown.find((row) => row.field === "duration")?.display, "since this morning");
+  });
+
+  it("hides the fallback's unanswered duration too, and only that row", () => {
+    const shown = displayRows(cardViewForPayload(FALLBACK_CARD));
+
+    assert.equal(shown.some((row) => row.field === "duration"), false);
+    assert.equal(shown.length, 4, "the other four rows still render");
+    // The rows that stand for something the user can still supply keep their explicit unanswered
+    // state, so a placeholder is never presented as an answer.
+    assert.ok(shown.some((row) => row.display === CARD_NOT_ANSWERED));
   });
 });
