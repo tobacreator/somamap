@@ -87,22 +87,29 @@
 }
 
 /**
- * The landing page's own paper.
+ * The warm paper the product stands on.
  *
- * `/` is the one screen a first-time visitor sees before anything else, and it presents the product's
- * warm paper in **both** colour modes: a first impression should be SomaMap's ivory, not the visitor's
- * operating system preference. The values are the light palette, restated here on purpose, and this is
- * the one place a reviewer has to look to change that decision.
+ * The pages a person meets before they have an account - the public landing page and the two auth screens
+ * - present SomaMap's warm paper in **both** colour modes: a first impression should be the product's
+ * ivory, not the visitor's operating system preference. Everything behind a session keeps switching with
+ * the mode, so this is a deliberate scope and not a second palette.
  *
- * It is written as `html:has(.landing)` and placed **before** the dark block for two reasons that both
+ * The scope was the landing page's alone until the auth screens were found rendering the dark palette on
+ * a warm product; it is now named for what it is rather than for the first page that needed it.
+ *
+ * It is written as `html:has(.paper-page)` and placed **before** the dark block for two reasons that both
  * matter: the specificity makes it win against the dark `:root` whatever the order (so the page really
  * does keep its paper in dark mode, and the body behind it resolves to the same ivory), and keeping it
  * above the `prefers-color-scheme` marker means the palette reader in `src/lib/contrast.ts` still sees
- * one light palette and one dark palette, exactly as the stylesheet resolves them. Nothing else changes:
- * the type, the radii and the accents are the same tokens, so this is the same design in the same system,
- * with the paper held still.
+ * one light palette and one dark palette, exactly as the stylesheet resolves them. The values are the
+ * light palette, restated here on purpose, and this is the one place a reviewer has to look to change
+ * that decision. Nothing else changes: the type, the radii and the accents are the same tokens, so this
+ * is the same design in the same system, with the paper held still.
+ *
+ * `PaperPage` (src/components/PaperPage.tsx) is the only thing that adds the class, so the scope and the
+ * markup cannot drift apart.
  */
-html:has(.landing) {
+html:has(.paper-page) {
   --color-paper: #fbfaf8;
   --color-surface: #e5e0d8;
   --color-tint: #d3cbbd;

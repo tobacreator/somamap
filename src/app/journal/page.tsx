@@ -39,6 +39,20 @@ export const metadata: Metadata = {
 async function JournalBody() {
   await connection();
 
+  /**
+   * The session is checked first, and the configuration second (`ISS-17`). The order used to be the
+   * other way round, so on a deployment whose target could not be resolved an unauthenticated reader was
+   * told the journal had failed to load - a configuration fact about the deployment - instead of being
+   * sent to sign in. Nothing about the environment is read or reported before a verified session exists.
+   *
+   * The destination carries them back here after signing in, and it is a path this app serves: the
+   * allow-list in `src/lib/signInDestination.ts` is what decides, so an edited query string cannot turn
+   * the sign-in screen into a redirect anywhere else.
+   */
+  const session = await currentSession();
+
+  if (!session) redirect("/sign-in?next=%2Fjournal");
+
   const resolution = supabaseTarget();
 
   if (!resolution.ok) {
@@ -48,10 +62,6 @@ async function JournalBody() {
       </p>
     );
   }
-
-  const session = await currentSession();
-
-  if (!session) redirect("/sign-in");
 
   const result = await listJournalCards({
     baseUrl: resolution.target.baseUrl,

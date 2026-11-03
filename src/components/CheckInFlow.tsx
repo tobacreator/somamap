@@ -59,6 +59,11 @@ import type { BodyView } from "@/lib/regions";
  * which acknowledgement the client sends with each turn. The client never guesses it, so the words on
  * screen and the field on the wire always describe the same processing.
  *
+ * `signedIn` is the server's answer to "is there a session?", and it decides exactly one thing: whether a
+ * finished card may be written (`ISS-17`). The interview needs no account, so the flow runs either way;
+ * what changes is that a card finished without a session is not sent anywhere, and the screen says so
+ * plainly instead of taking a refusal. It is a boolean, never a token, and it is forwarded untouched.
+ *
  * Nothing is saved in any step: no database write, no storage call, no session row. The
  * fixed line from iron rule 5 renders on every screen of every step.
  *
@@ -81,7 +86,7 @@ import type { BodyView } from "@/lib/regions";
  * replace it with anything - "left wrist", "jaw", "the spot under my right shoulder blade". The field's
  * text is what travels, and "Prefer not to say" is an explicit choice that sends no location at all.
  */
-export default function CheckInFlow({ mode }: { mode: ProcessingMode }) {
+export default function CheckInFlow({ mode, signedIn }: { mode: ProcessingMode; signedIn: boolean }) {
   const [flow, setFlow] = useState<CheckInFlowState>(EMPTY_CHECK_IN_STATE);
   /**
    * Which step the flow is on. `disclosure` is the **only** way into `interview` (Phase 2D): the
@@ -189,6 +194,7 @@ export default function CheckInFlow({ mode }: { mode: ProcessingMode }) {
     return (
       <InterviewChat
         mode={mode}
+        canSave={signedIn}
         regionLabel={preferNotToSay ? "" : regionLabel}
         description={flow.boxText}
         view={view}

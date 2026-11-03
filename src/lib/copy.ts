@@ -266,7 +266,61 @@ export const JOURNAL_CARD_SAVING = "Saving your card...";
 export const JOURNAL_CARD_SAVED = "Saved to your journal.";
 export const JOURNAL_CARD_SAVE_FAILED =
   "This card could not be saved. Nothing was lost - it is still on this screen.";
+
+/**
+ * The signed-out card, said honestly (`ISS-17`).
+ *
+ * The interview needs no account, so a person with no session can finish a card - and the app used to
+ * try to write it anyway, take a 401, and show the failure line. Nothing is attempted now, and this is
+ * what the screen says instead: the fact (not saved), the reason (not signed in), and what is true of
+ * the card at that moment (it is still on screen). It makes no claim about the future, and it never
+ * says the card was saved.
+ */
+export const JOURNAL_CARD_SIGNED_OUT =
+  "This card is not saved, because you are not signed in. Nothing was lost - it is still on this screen.";
+export const JOURNAL_CARD_SIGN_IN_LINK = "Sign in to keep your cards";
 export const JOURNAL_VIEW = "View your journal";
+
+/**
+ * The ways on from Settings (`ISS-17`).
+ *
+ * Settings used to be a dead end: it carried the delete switch and nothing else, so a signed-in person
+ * could not reach the journal, the check-in or the home page without editing the address bar. These are
+ * those three links and the sign-out control. Two of the three labels are the journal's own strings
+ * reused rather than retyped - the same destination should not have two names.
+ */
+export const SETTINGS_NAV_LABEL = "Go to";
+export const SETTINGS_NAV_JOURNAL = JOURNAL_TITLE;
+export const SETTINGS_NAV_CHECKIN = JOURNAL_START_CHECKIN;
+export const SETTINGS_NAV_HOME = "Home";
+export const SETTINGS_SIGN_OUT = "Sign out";
+export const SETTINGS_SIGN_OUT_BUSY = "Signing out...";
+export const SETTINGS_SIGN_OUT_FAILED = "Signing out did not work. Nothing was changed. Try again.";
+
+/**
+ * Which model processing this deployment is actually using (`ISS-18`).
+ *
+ * The interview's disclosure already tells the *person* which processing their words get, because that
+ * is a decision they make. This panel tells the *operator* something different and just as necessary:
+ * whether live mode is on, and if it is not usable, why not. Without it, a build with `MODEL_MODE=live`
+ * and a refused provider configuration looks identical to a working one - every card silently renders
+ * the reviewed fallback - and "the AI is live" becomes a claim nobody can check.
+ *
+ * It names the provider host, the model and the timeout, and it never names or carries the key. Nothing
+ * here is user-facing copy: it appears on Settings, beside the Supabase target, for the same reason that
+ * panel exists - the environment on screen should be the environment that is acted on.
+ */
+export const PROCESSING_TITLE = "Processing";
+export const PROCESSING_MOCK =
+  "Mock mode: the interview is worded by this build's own recorded examples. Nothing is sent to an external provider.";
+export const PROCESSING_LIVE =
+  "Live mode: the interview is worded by Baseten, an external provider, from the words the person gave.";
+export const PROCESSING_NOT_READY =
+  "Live mode is switched on, but the provider configuration was refused, so the reviewed fallback card is used and nothing is sent.";
+export const PROCESSING_NOT_READY_REASON = "Reason";
+export const PROCESSING_HOST = "Provider host";
+export const PROCESSING_MODEL = "Model";
+export const PROCESSING_TIMEOUT = "Timeout";
 
 /**
  * The public home page - the market validation report's approved landing copy, verbatim.
@@ -348,6 +402,8 @@ export const SIGNIN_SIGNUP_PROMPT = "New here? Create an account";
 /** Sign-in - the minimum session the delete-everything action needs. */
 export const SIGNIN_TITLE = "Sign in";
 export const SIGNIN_INTRO = "Sign in to reach your settings.";
+/** Shown while the form streams in: the destination it will use is read per request (`ISS-17`). */
+export const SIGNIN_LOADING = "Getting the sign-in form ready...";
 export const SIGNIN_EMAIL = "Email";
 export const SIGNIN_PASSWORD = "Password";
 export const SIGNIN_SUBMIT = "Sign in";

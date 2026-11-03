@@ -36,6 +36,7 @@ import {
   JOURNAL_CARD_SAVED,
   JOURNAL_CARD_SAVE_FAILED,
   JOURNAL_CARD_SAVING,
+  JOURNAL_CARD_SIGN_IN_LINK,
   JOURNAL_VIEW,
 } from "@/lib/copy";
 import {
@@ -63,6 +64,7 @@ import {
 } from "@/lib/interviewFlow";
 import { withAcknowledgement, type ProcessingMode } from "@/lib/externalProcessing";
 import { savedCardFromPayload } from "@/lib/journal";
+import { saveIntentFor } from "@/lib/journalSave";
 import type { BodyView } from "@/lib/regions";
 import type { SensationCard } from "@/lib/schema";
 
@@ -167,6 +169,12 @@ type InterviewChatProps = {
    */
   mode: ProcessingMode;
   /**
+   * Whether a finished card may be written, from the server's own session read (`ISS-17`). False means the
+   * interview still runs - it needs no account - but no write is attempted, and the card screen says why.
+   * It is a boolean, so no token, cookie or identity is involved.
+   */
+  canSave: boolean;
+  /**
    * The location the person chose or typed, verbatim, or "" when they named none (Phase 2H). It is a
    * prop rather than part of the session so that it survives everything the session survives - editing,
    * replay, and a change of location - and it travels with every request so the server can screen it
@@ -203,6 +211,7 @@ type InterviewChatProps = {
 
 export default function InterviewChat({
   mode,
+  canSave,
   regionLabel,
   description,
   view,
@@ -350,7 +359,9 @@ export default function InterviewChat({
    * on screen, and the user is told it was not saved.
    */
   const saved = useRef<InterviewFlowState | null>(null);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed" | "signin-required">("idle");
+  /** What the screen says when the card was not written: the policy's own wording, never retyped here. */
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (flow.phase !== "complete") return;
@@ -359,6 +370,24 @@ export default function InterviewChat({
     saved.current = flow;
 
     void (async () => {
+      /**
+       * `ISS-17`: with no session the card is not written, and no request is made. The behaviour this
+       * replaces was a write that could not succeed - a 401, a console error, and the generic failure line,
+       * which explained nothing about why. The decision belongs to `saveIntentFor` (src/lib/journalSave.ts),
+       * so the policy is one tested function rather than a condition written here, and the sentence the
+       * screen shows is the policy's own copy string.
+       */
+      const intent = saveIntentFor(canSave);
+
+      if (!intent.attempt) {
+        setSaveNotice(intent.notice);
+        setSaveState("signin-required");
+
+        return;
+      }
+
+      setSaveNotice(null);
+
       const card = savedCardFromPayload(flow.card);
 
       if (card === null) {
@@ -372,7 +401,7 @@ export default function InterviewChat({
 
       setSaveState(outcome.ok ? "saved" : "failed");
     })();
-  }, [flow, view]);
+  }, [flow, view, canSave]);
 
   const question = currentQuestion(flow);
   const busy = flow.phase === "submitting";
@@ -543,6 +572,23 @@ export default function InterviewChat({
           <p role="alert" className="text-body leading-6 text-ink">
             {JOURNAL_CARD_SAVE_FAILED}
           </p>
+        ) : null}
+
+        {/* Not saved, and the reason: no session, so no write was attempted (`ISS-17`). The card is still
+            here, nothing is claimed about it, and the one way to keep cards is one tap away. */}
+        {saveState === "signin-required" && saveNotice !== null ? (
+          <p role="status" className="text-body leading-6 text-ink">
+            {saveNotice}
+          </p>
+        ) : null}
+
+        {saveState === "signin-required" ? (
+          <Link
+            href="/sign-in"
+            className="inline-flex min-h-11 items-center self-start text-label font-medium text-accent-text underline"
+          >
+            {JOURNAL_CARD_SIGN_IN_LINK}
+          </Link>
         ) : null}
 
         <Link

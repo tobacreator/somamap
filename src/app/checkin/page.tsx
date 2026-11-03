@@ -4,6 +4,7 @@ import { connection } from "next/server";
 
 import CheckInFlow from "@/components/CheckInFlow";
 import Screen from "@/components/Screen";
+import { currentSession } from "@/lib/authSession";
 import { CHECKIN_LOADING } from "@/lib/copy";
 import { modelMode } from "@/lib/models";
 
@@ -33,11 +34,21 @@ export const metadata: Metadata = {
   description: "Find the words for what you feel.",
 };
 
-/** The request-time part: it reads the mode, so it streams in behind the boundary below. */
+/** The request-time part: it reads the mode and the session, so it streams in behind the boundary below. */
 async function CheckInBody() {
   await connection();
 
-  return <CheckInFlow mode={modelMode()} />;
+  /**
+   * The session, read on the server and handed down as a plain boolean (`ISS-17`).
+   *
+   * The check-in needs no account, so the interview runs either way - but a finished card can only be
+   * written when there is a session, and only the server can answer that. Reading it here is what lets
+   * the card screen tell the truth: without a session no request is made at all, so there is no doomed
+   * write and no refusal to explain. A boolean crosses to the browser; no token, cookie or identity does.
+   */
+  const session = await currentSession();
+
+  return <CheckInFlow mode={modelMode()} signedIn={session !== null} />;
 }
 
 export default function CheckInPage() {

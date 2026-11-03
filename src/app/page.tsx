@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { buttonClass } from "@/components/Button";
+import PaperPage from "@/components/PaperPage";
 import Screen from "@/components/Screen";
 import {
   HOME_ACCOUNT_NOTE,
@@ -87,7 +88,7 @@ function FigureMark() {
 
 export default function HomePage() {
   return (
-    <div className="landing flex min-h-screen flex-col bg-paper">
+    <PaperPage>
       <Screen>
         <section className="flex flex-col gap-8 rounded-panel bg-surface/40 p-6 sm:p-8 md:flex-row md:items-center md:gap-12 md:p-10">
           <div className="flex min-w-0 flex-1 flex-col gap-5">
@@ -153,7 +154,7 @@ export default function HomePage() {
         </ol>
       </section>
       </Screen>
-    </div>
+    </PaperPage>
   );
 }
 
