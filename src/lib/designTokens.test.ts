@@ -91,6 +91,8 @@ const REQUIRED_TOKENS: readonly string[] = [
   "--text-question--line-height",
   "--text-display",
   "--text-display--line-height",
+  "--text-hero",
+  "--text-hero--line-height",
   "--spacing-gutter",
   "--spacing-stack",
   "--radius-control",

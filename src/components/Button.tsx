@@ -26,7 +26,20 @@ const VARIANTS = {
   dangerSolid: "bg-danger text-accent-ink hover:bg-danger/90 disabled:bg-surface disabled:text-ink-muted",
 } as const;
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: keyof typeof VARIANTS };
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: keyof typeof VARIANTS;
+  size?: keyof typeof SIZES;
+};
+
+/**
+ * Two heights: the standard control, and the one the landing page's primary action uses. Both clear the
+ * 44px touch minimum; the larger one exists because a first-time visitor's single next step should look
+ * like the main thing on the page, not like one of several equal pills.
+ */
+const SIZES = {
+  md: "min-h-11 px-5",
+  lg: "min-h-12 px-7",
+} as const;
 
 /**
  * The button's classes, for a control that navigates rather than acts.
@@ -35,10 +48,14 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: keyof t
  * string into a route is exactly the drift `Button` was created to remove. This is the one source of the
  * pill's appearance, shared by both. Rendering is unchanged: `Button` passes the same classes through.
  */
-export function buttonClass(variant: keyof typeof VARIANTS = "primary", className = ""): string {
-  return `inline-flex min-h-11 items-center justify-center rounded-pill px-5 text-label font-medium transition-colors disabled:cursor-not-allowed ${VARIANTS[variant]} ${FOCUS_RING} ${className}`;
+export function buttonClass(
+  variant: keyof typeof VARIANTS = "primary",
+  size: keyof typeof SIZES = "md",
+  className = "",
+): string {
+  return `inline-flex items-center justify-center rounded-pill text-label font-medium transition-colors disabled:cursor-not-allowed ${SIZES[size]} ${VARIANTS[variant]} ${FOCUS_RING} ${className}`;
 }
 
-export default function Button({ variant = "primary", type = "button", className = "", ...rest }: ButtonProps) {
-  return <button {...rest} type={type} className={buttonClass(variant, className)} />;
+export default function Button({ variant = "primary", size = "md", type = "button", className = "", ...rest }: ButtonProps) {
+  return <button {...rest} type={type} className={buttonClass(variant, size, className)} />;
 }

@@ -44,26 +44,74 @@ export const metadata: Metadata = {
 
 const LINK_CLASS = "inline-flex min-h-11 items-center text-label font-medium text-accent-text underline";
 
+/**
+ * The page's one image: a quiet, abstract figure drawn in the product's own tokens.
+ *
+ * It is the product's own idea, reduced to its gentlest form - a body, and a place on it - so the top of
+ * the page shows what SomaMap is about without a photograph, an illustration of a person, or anything
+ * that could read as clinical. Soft sand fills, hairline outlines, one clay point where a person would
+ * point. It is decorative: the H1 carries the meaning, so the figure is hidden from assistive technology
+ * rather than described, and it scales with the column instead of being a fixed asset.
+ */
+function FigureMark() {
+  return (
+    <svg
+      viewBox="0 0 140 200"
+      aria-hidden="true"
+      focusable="false"
+      className="h-auto w-full max-w-[8.5rem] sm:max-w-[10rem] md:max-w-[11rem]"
+    >
+      {/* the soft wash the figure sits on */}
+      <ellipse cx="70" cy="176" rx="52" ry="9" className="fill-tint" />
+
+      {/* head and neck */}
+      <circle cx="70" cy="30" r="19" className="fill-surface stroke-hairline" strokeWidth="1.6" />
+      <rect x="64" y="47" width="12" height="10" rx="5" className="fill-surface" />
+
+      {/* torso: one rounded shape, no anatomy */}
+      <path
+        d="M70 56c19 0 33 10 35 27l5 41c1 12-3 19-12 21l-8 2c-1 7-3 13-6 19h-28c-3-6-5-12-6-19l-8-2c-9-2-13-9-12-21l5-41c2-17 16-27 35-27Z"
+        className="fill-surface stroke-hairline"
+        strokeWidth="1.6"
+      />
+
+      {/* arms, resting */}
+      <rect x="20" y="72" width="13" height="66" rx="6.5" className="fill-surface stroke-hairline" strokeWidth="1.4" />
+      <rect x="107" y="72" width="13" height="66" rx="6.5" className="fill-surface stroke-hairline" strokeWidth="1.4" />
+
+      {/* the one clay point: where a person would point */}
+      <circle cx="52" cy="86" r="7.5" className="fill-accent stroke-paper" strokeWidth="2.4" />
+    </svg>
+  );
+}
+
 export default function HomePage() {
   return (
-    <Screen>
-      <header className="flex flex-col gap-4">
-        <h1 className="font-serif text-question font-semibold tracking-tight text-ink md:text-display">
-          {HOME_H1}
-        </h1>
+    <div className="landing flex min-h-screen flex-col bg-paper">
+      <Screen>
+        <section className="flex flex-col gap-8 rounded-panel bg-surface/40 p-6 sm:p-8 md:flex-row md:items-center md:gap-12 md:p-10">
+          <div className="flex min-w-0 flex-1 flex-col gap-5">
+          <h1 className="font-serif text-question font-semibold tracking-tight text-ink md:text-hero">
+            {HOME_H1}
+          </h1>
 
-        <p className="text-lead leading-7 text-ink-muted">{HOME_SUBHEAD}</p>
-      </header>
+          <p className="text-lead leading-7 text-ink-muted">{HOME_SUBHEAD}</p>
 
-      <div className="flex flex-wrap gap-3">
-        <Link href="/checkin" className={buttonClass("primary")}>
-          {HOME_PRIMARY_ACTION}
-        </Link>
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <Link href="/checkin" className={buttonClass("primary", "lg")}>
+              {HOME_PRIMARY_ACTION}
+            </Link>
 
-        <Link href="/sign-in" className={buttonClass("secondary")}>
-          {HOME_SECONDARY_ACTION}
-        </Link>
-      </div>
+            <Link href="/sign-in" className={buttonClass("secondary")}>
+              {HOME_SECONDARY_ACTION}
+            </Link>
+          </div>
+        </div>
+
+        <div className="flex justify-center md:flex-none">
+          <FigureMark />
+        </div>
+      </section>
 
       <div className="flex flex-col gap-1">
         <p className="text-body leading-6 text-ink-muted">{HOME_ACCOUNT_NOTE}</p>
@@ -82,15 +130,20 @@ export default function HomePage() {
         <p className="text-body leading-6 text-ink-muted">{HOME_JOURNAL_NOTE}</p>
       </div>
 
-      <section aria-labelledby="home-steps" className="flex flex-col gap-2">
+      <section aria-labelledby="home-steps" className="flex flex-col gap-4">
         <h2 id="home-steps" className="text-label font-medium text-ink-muted">
           {HOME_STEPS_TITLE}
         </h2>
 
-        <ol className="flex flex-col divide-y divide-rule border-t border-rule">
+        {/* Three blocks divided by hairlines rather than three cards: the approved direction, and the
+            reason the grid uses a one-pixel gap over the rule colour instead of borders. */}
+        <ol className="grid gap-px overflow-hidden rounded-panel bg-rule sm:grid-cols-3">
           {HOME_STEPS.map((step, index) => (
-            <li key={step} className="flex items-baseline gap-3 py-3">
-              <span aria-hidden="true" className="text-label font-medium text-accent-text">
+            <li key={step} className="flex flex-col gap-3 bg-paper p-5">
+              <span
+                aria-hidden="true"
+                className="flex h-8 w-8 items-center justify-center rounded-pill bg-accent/10 text-label font-semibold text-accent-text"
+              >
                 {index + 1}
               </span>
 
@@ -99,7 +152,8 @@ export default function HomePage() {
           ))}
         </ol>
       </section>
-    </Screen>
+      </Screen>
+    </div>
   );
 }
 
