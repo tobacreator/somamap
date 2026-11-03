@@ -32,7 +32,7 @@ export const VIEW_BACK = "Back";
 export const REGION_READOUT_PREFIX = "Region";
 export const REGION_NONE_HINT = "Tap the body map to name a region.";
 export const REGION_MAP_NOTE =
-  "Region names come from a fixed body map: the same spot always names the same region. Nothing is generated, and SomaMap does not save anything yet.";
+  "Region names come from a fixed body map: the same spot always names the same region. Nothing is generated, and this screen saves nothing.";
 
 /**
  * The location field (Phase 2H).
@@ -65,7 +65,8 @@ export function regionButtonLabel(label: string, selected: boolean): string {
 export const CHECKIN_BOX_LABEL = "Anything you want to put into words";
 export const CHECKIN_BOX_PLACEHOLDER = "Type a few words, or leave it blank.";
 export const CHECKIN_BOX_SUBMIT = "Continue";
-export const CHECKIN_BOX_KEPT = "Your words stay on this screen. SomaMap does not save them yet.";
+export const CHECKIN_BOX_KEPT =
+  "Your words stay on this screen until you continue. A finished card is saved to your journal when you are signed in.";
 
 /**
  * The interview - blueprint Chapter 5.3 (the Day-4 prompt) and Table 10 stage 2.
@@ -73,7 +74,7 @@ export const CHECKIN_BOX_KEPT = "Your words stay on this screen. SomaMap does no
  * The question wording is deliberately not here: every question is the reviewed bank's own
  * text, which the route returns, so no copy in this module can drift from Table 11. These
  * strings are only the frame around it - the step label, the progress line, the answer field,
- * the waiting and error states, and the note that nothing is saved.
+ * the waiting and error states, and the note about what happens to the answers.
  */
 export const INTERVIEW_STEP_LABEL = "Interview";
 export const INTERVIEW_PROGRESS = (step: number, total: number): string => `Question ${step} of ${total}`;
@@ -84,7 +85,8 @@ export const INTERVIEW_LOADING = "Getting the next question...";
 export const INTERVIEW_ERROR = "That question could not be loaded, and nothing was saved.";
 export const INTERVIEW_RETRY = "Try again";
 export const INTERVIEW_BACK = "Back to check-in";
-export const INTERVIEW_NOTE = "Your answers stay on this screen. SomaMap does not save them yet.";
+export const INTERVIEW_NOTE =
+  "Your answers stay on this screen until the card is finished. The finished card is saved to your journal when you are signed in.";
 
 /**
  * Shown while the answer field is empty, so the disabled Continue button explains itself instead of
@@ -265,6 +267,83 @@ export const JOURNAL_CARD_SAVED = "Saved to your journal.";
 export const JOURNAL_CARD_SAVE_FAILED =
   "This card could not be saved. Nothing was lost - it is still on this screen.";
 export const JOURNAL_VIEW = "View your journal";
+
+/**
+ * The public home page - the market validation report's approved landing copy, verbatim.
+ *
+ * The title tag, the H1, the subhead and the three-step explainer are the approved wording and are
+ * asserted verbatim by `src/lib/landingCopy.test.ts`, so this page cannot drift from the report without
+ * failing a check. The action labels and the one account line are the only strings here written for this
+ * page, and the account line states only what the shipped app does: a check-in needs no account, and an
+ * account is what keeps a card.
+ *
+ * Deliberately absent: the report's four FAQ answers (their wording is not in this workspace, and
+ * inventing them would be inventing approved copy), any claim about what a sensation means or what
+ * causes it, and any promise about what an external provider does with a person's words.
+ */
+export const HOME_TITLE_TAG = "SomaMap - find the words for what you feel in your body";
+export const HOME_H1 = "Point at your body. Find the words.";
+export const HOME_SUBHEAD =
+  "Notice, name, and remember sensations - then bring the words to your appointment.";
+
+/** The approved three-step explainer, as the report writes it and as the page's three blocks. */
+export const HOME_STEPS_SENTENCE = "Tap it. Describe it with a little help. Bring the words.";
+export const HOME_STEPS: readonly string[] = [
+  "Tap it.",
+  "Describe it with a little help.",
+  "Bring the words.",
+];
+
+export const HOME_STEPS_TITLE = "How it works";
+export const HOME_PRIMARY_ACTION = "Start a check-in";
+export const HOME_SECONDARY_ACTION = "Sign in";
+export const HOME_SIGNUP_ACTION = "Create an account";
+export const HOME_JOURNAL_ACTION = "See your journal";
+
+/**
+ * Product state, not report copy: what needs an account and what does not. It says nothing about what
+ * happens to a person's words - that is the disclosure's job, on the screen where it applies.
+ */
+export const HOME_ACCOUNT_NOTE =
+  "You can check in without an account. An account is what keeps a card in your journal.";
+
+/**
+ * The journal link's own line, so the journey is legible before the click.
+ *
+ * `/journal` sends a signed-out visitor to the sign-in screen, which is correct but unexplained; this
+ * says the one thing that redirect would otherwise have to say for us - a saved journal needs an account.
+ * It promises nothing about a check-in in progress, because a signed-out check-in is not kept anywhere,
+ * and it says nothing about what happens to a person's words beyond that.
+ */
+export const HOME_JOURNAL_NOTE =
+  "Your journal needs an account. Sign in, and the cards you finish are kept there.";
+
+/**
+ * Creating an account - the self-service half of the existing authentication.
+ *
+ * The failure lines are three different facts, and each is shown only for the state it describes: bad
+ * input, a refusal from the account service, or a service that could not be reached. None of them claims
+ * to know why an email was refused, because the account service does not say, and a screen that guessed
+ * would be inventing a reason.
+ *
+ * There is deliberately no password-reset link: password reset is not implemented in this build, and a
+ * link that led nowhere would be worse than its absence.
+ */
+export const SIGNUP_TITLE = "Create an account";
+export const SIGNUP_INTRO = "An account keeps the cards you make, so you can come back to your own words.";
+export const SIGNUP_EMAIL = "Email";
+export const SIGNUP_PASSWORD = "Password";
+export const SIGNUP_SUBMIT = "Create my account";
+export const SIGNUP_INVALID = "Enter an email address and a password.";
+export const SIGNUP_FAILED = "That email and password were not accepted. Check both, then try again.";
+export const SIGNUP_UNAVAILABLE = "The account service could not be reached. Nothing was created. Try again.";
+export const SIGNUP_NOT_CONFIGURED = "Accounts are not available in this deployment.";
+export const SIGNUP_CONFIRM_TITLE = "Confirm your email";
+export const SIGNUP_CONFIRM_BODY =
+  "Your account was created. This deployment asks new accounts to confirm their email address before signing in.";
+export const SIGNUP_CONFIRM_LINK = "Go to sign in";
+export const SIGNUP_SIGNIN_PROMPT = "Already have an account? Sign in";
+export const SIGNIN_SIGNUP_PROMPT = "New here? Create an account";
 
 /** Sign-in - the minimum session the delete-everything action needs. */
 export const SIGNIN_TITLE = "Sign in";

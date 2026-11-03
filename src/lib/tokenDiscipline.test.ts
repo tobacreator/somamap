@@ -26,12 +26,13 @@ const SCAN_ROOTS = ["src/components", "src/app"] as const;
  * Deliberate exclusions, each with its reason:
  *
  *   - `src/app/globals.css` is where the tokens are declared, so it is the one file that names
- *     colours - and it is not a `.ts`/`.tsx` file, so the extension filter below already skips it;
- *   - `src/app/page.tsx` is still the create-next-app scaffold. The landing page is out of scope for
- *     this phase, so it keeps its own classes; its two colour utilities are aliased in the
- *     stylesheet so it keeps rendering.
+ *     colours - and it is not a `.ts`/`.tsx` file, so the extension filter below already skips it.
+ *
+ * `src/app/page.tsx` used to be excluded here, because it was still the create-next-app scaffold. It is
+ * the real landing page now, so it is scanned like every other screen - which is why it names tokens and
+ * no palette colours, and renders through the shell.
  */
-const EXCLUDED = new Set(["src/app/globals.css", "src/app/page.tsx"]);
+const EXCLUDED = new Set(["src/app/globals.css"]);
 
 /** A Tailwind utility that names a palette colour, e.g. `text-zinc-900`, `dark:bg-red-700`. */
 const PALETTE_UTILITY =
@@ -112,7 +113,15 @@ describe("token discipline", () => {
   });
 
   it("renders every route through the shell", () => {
-    for (const route of ["src/app/checkin/page.tsx", "src/app/settings/page.tsx", "src/app/sign-in/page.tsx"]) {
+    for (const route of [
+      "src/app/page.tsx",
+      "src/app/checkin/page.tsx",
+      "src/app/settings/page.tsx",
+      "src/app/sign-in/page.tsx",
+      "src/app/sign-up/page.tsx",
+      "src/app/journal/page.tsx",
+      "src/app/journal/[id]/page.tsx",
+    ]) {
       const source = sources.find(({ file }) => file === route);
 
       assert.ok(source !== undefined, `${route} must be scanned`);

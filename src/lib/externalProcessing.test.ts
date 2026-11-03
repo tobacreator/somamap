@@ -191,10 +191,23 @@ describe("the disclosure is the mode's own (Phase 2D)", () => {
   });
 });
 
-describe("the saved lines name SomaMap, not a provider (Phase 2D follow-up)", () => {
-  it("attributes not saving to SomaMap itself, so it cannot read as a provider claim", () => {
+/**
+ * The two lines that talk about saving, held to the property the Phase 2D follow-up established: they
+ * must not read as a claim about the external provider, and they must not claim that nothing is saved
+ * anywhere.
+ *
+ * The mechanism changed with the wording. These lines used to say "SomaMap does not save them yet", and
+ * the guard asserted that the product was named. The corrected wording no longer names the product in
+ * that sentence - it names **what** is saved and **when** ("a finished card ... when you are signed in"),
+ * which is the same property by a better route: the sentence is plainly about this product's own journal,
+ * and a reader cannot mistake it for a statement about the provider.
+ */
+describe("the saved lines are about this product's own journal, not a provider (Phase 2D follow-up)", () => {
+  it("names what is saved and when, mentions no provider, and makes no absolute claim", () => {
     for (const line of [CHECKIN_BOX_KEPT, INTERVIEW_NOTE]) {
-      assert.ok(line.includes("SomaMap"), `the subject is named: ${line}`);
+      assert.ok(line.includes("journal"), `the destination is named: ${line}`);
+      assert.ok(line.includes("finished card"), `what is saved is named: ${line}`);
+      assert.ok(line.includes("signed in"), `the condition is named: ${line}`);
       assert.equal(/Baseten|provider/i.test(line), false, `no provider is mentioned: ${line}`);
       assert.equal(line.toLowerCase().includes("nothing is saved"), false, "and not as an absolute claim");
     }

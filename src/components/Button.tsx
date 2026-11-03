@@ -28,12 +28,17 @@ const VARIANTS = {
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: keyof typeof VARIANTS };
 
+/**
+ * The button's classes, for a control that navigates rather than acts.
+ *
+ * A navigation is a link (`<Link>`), not a `<button>`, so it cannot be `Button` - and copying the class
+ * string into a route is exactly the drift `Button` was created to remove. This is the one source of the
+ * pill's appearance, shared by both. Rendering is unchanged: `Button` passes the same classes through.
+ */
+export function buttonClass(variant: keyof typeof VARIANTS = "primary", className = ""): string {
+  return `inline-flex min-h-11 items-center justify-center rounded-pill px-5 text-label font-medium transition-colors disabled:cursor-not-allowed ${VARIANTS[variant]} ${FOCUS_RING} ${className}`;
+}
+
 export default function Button({ variant = "primary", type = "button", className = "", ...rest }: ButtonProps) {
-  return (
-    <button
-      {...rest}
-      type={type}
-      className={`inline-flex min-h-11 items-center justify-center rounded-pill px-5 text-label font-medium transition-colors disabled:cursor-not-allowed ${VARIANTS[variant]} ${FOCUS_RING} ${className}`}
-    />
-  );
+  return <button {...rest} type={type} className={buttonClass(variant, className)} />;
 }

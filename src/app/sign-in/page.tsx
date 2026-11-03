@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import Screen from "@/components/Screen";
 import SignInForm from "@/components/SignInForm";
-import { SIGNIN_INTRO, SIGNIN_TITLE } from "@/lib/copy";
+import { SIGNIN_INTRO, SIGNIN_SIGNUP_PROMPT, SIGNIN_TITLE } from "@/lib/copy";
 
 /**
  * Sign-in - the minimum authentication surface the delete-everything action needs.
@@ -27,6 +28,13 @@ export default function SignInPage() {
       </header>
 
       <SignInForm />
+
+      <Link
+        href="/sign-up"
+        className="inline-flex min-h-11 items-center text-label font-medium text-accent-text underline"
+      >
+        {SIGNIN_SIGNUP_PROMPT}
+      </Link>
     </Screen>
   );
 }
