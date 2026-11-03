@@ -1,4 +1,11 @@
-import { basetenAdapter, defaultBasetenTransport, resolveBasetenConfig, type BasetenTransport } from "./baseten.ts";
+import {
+  BasetenRequestError,
+  basetenAdapter,
+  defaultBasetenTransport,
+  resolveBasetenConfig,
+  type BasetenFailureCode,
+  type BasetenTransport,
+} from "./baseten.ts";
 import { prohibitedLanguageIn } from "./draftGuard.ts";
 import { groundModelDraft, mockCardFrom, withFallbackFidelity } from "./cardFidelity.ts";
 import { interviewFixture } from "./fixtures.ts";
@@ -171,6 +178,23 @@ export type ViolationReason =
   | "prohibited-language"
   | "internal-error";
 
+/**
+ * Why a provider turn produced no draft (`ISS-19`).
+ *
+ * Two shapes, and nothing else: the adapter tried and failed in one of its own closed-set ways, or there
+ * was no usable provider configuration to try with at all. The second is what made a live run
+ * indistinguishable from a misconfigured one - both ended as `provider-unavailable` with nothing to say
+ * which had happened, which is exactly what the one approved live request ran into.
+ *
+ * What may travel here, exhaustively: a category from `BasetenFailureCode` (timeout, unreachable, http,
+ * malformed, unusable), the numeric HTTP status when the provider answered at all, and the fact that no
+ * configuration resolved. Never a key, a header, a URL, a path, a query string, a response body, a
+ * provider message, or a word the person wrote.
+ */
+export type ProviderFailure =
+  | { code: BasetenFailureCode; status?: number }
+  | { code: "not-configured" };
+
 /** The safe record: categories and ids only, never the user's words or the model's text. */
 export type ViolationRecord = {
   event: "model-output-rejected";
@@ -180,6 +204,12 @@ export type ViolationRecord = {
   /** Which questions the session had reached. Ids only. */
   questions: readonly string[];
   mode: ModelMode;
+  /**
+   * Why a provider turn produced nothing, when that is what happened (`ISS-19`). Absent for every other
+   * reason - a refused draft, prohibited language, an internal error - because those are not provider
+   * failures and must not be mistaken for one.
+   */
+  failure?: ProviderFailure;
 };
 
 export type ViolationLogger = (record: ViolationRecord) => void;
@@ -198,11 +228,29 @@ export const consoleViolationLogger: ViolationLogger = (record) => {
   console.warn(`SomaMap model boundary: ${JSON.stringify(record)}`);
 };
 
+/**
+ * The failure detail for a caught adapter error, or undefined when it is not one this boundary knows.
+ *
+ * Only the two shapes the boundary itself raises are recognised. An unexpected throw is left without a
+ * failure: inventing a category for it would be a guess, and the route already records it as an
+ * `internal-error` in its own content-free line.
+ */
+function providerFailureFrom(error: unknown): ProviderFailure | undefined {
+  if (error instanceof ModelUnavailableError) return { code: "not-configured" };
+
+  if (error instanceof BasetenRequestError) {
+    return error.status === undefined ? { code: error.code } : { code: error.code, status: error.status };
+  }
+
+  return undefined;
+}
+
 function recordFor(
   reason: ViolationReason,
   keys: readonly string[],
   snapshot: ModelSnapshot,
   mode: ModelMode,
+  failure?: ProviderFailure,
 ): ViolationRecord {
   return {
     event: "model-output-rejected",
@@ -210,6 +258,7 @@ function recordFor(
     keys: [...keys],
     questions: snapshot.answers.map((answer) => answer.questionId),
     mode,
+    ...(failure === undefined ? {} : { failure }),
   };
 }
 
@@ -266,8 +315,13 @@ export async function wordCard(snapshot: ModelSnapshot, deps: WordCardDeps): Pro
 
   try {
     payload = await deps.adapter.interview(snapshot);
-  } catch {
-    deps.logger(recordFor("provider-unavailable", [], snapshot, deps.mode));
+  } catch (error) {
+    /**
+     * The category - and, when the provider answered at all, the numeric status - is all an operator
+     * needs (`ISS-19`): it is what tells a refused credential from a reply of the wrong shape. Nothing
+     * else about the failure travels, and the reviewed fallback card is unchanged either way.
+     */
+    deps.logger(recordFor("provider-unavailable", [], snapshot, deps.mode, providerFailureFrom(error)));
     return { card: withFallbackFidelity(FALLBACK_CARD, snapshot), usedFallback: true };
   }
 

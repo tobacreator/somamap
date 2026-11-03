@@ -195,16 +195,26 @@ export type BasetenFailureCode = "timeout" | "unreachable" | "http" | "malformed
  *
  * Its message is a fixed string built from the code, so a caught error can never carry the request
  * body, the response body, the model's text or the key - the ways a provider failure usually leaks into
- * a log. `code` exists for tests and for a future operator-facing refinement; it is never logged today
- * and never reaches a response body.
+ * a log. `code` and, when the provider answered at all, the numeric `status` are the only facts a caller
+ * may pass on: the model boundary puts them into its content-free record (`ISS-19`), which is what lets
+ * an operator tell a refused credential or model id from a reply of the wrong shape. Neither ever reaches
+ * a response body, and no request or response content travels with them.
  */
 export class BasetenRequestError extends Error {
   readonly code: BasetenFailureCode;
+  /**
+   * The HTTP status the provider answered with, when there was one. A number is not content: it carries
+   * no body, no header, no URL and nothing the person wrote, and it is the difference between "the
+   * provider refused this" and "the reply was not the shape this build accepts".
+   */
+  readonly status?: number;
 
-  constructor(code: BasetenFailureCode) {
+  constructor(code: BasetenFailureCode, status?: number) {
     super(`baseten request failed: ${code}`);
     this.name = "BasetenRequestError";
     this.code = code;
+
+    if (status !== undefined) this.status = status;
   }
 }
 
@@ -304,7 +314,12 @@ export function basetenAdapter({ config, transport = defaultBasetenTransport }: 
         );
       }
 
-      if (response.status < 200 || response.status >= 300) throw new BasetenRequestError("http");
+      // The numeric status only, and only when there is one: a number is not content, and it is the one
+      // fact that separates a refused credential or model id from a reply of the wrong shape. The body is
+      // never read on this path - not to log it, not to include it in the error.
+      if (response.status < 200 || response.status >= 300) {
+        throw new BasetenRequestError("http", response.status);
+      }
 
       let text: string;
 
