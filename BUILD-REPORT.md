@@ -11768,3 +11768,767 @@ decision is which of its three options to take. If `ISS-07` is to be revisited, 
 could pass all four gates is a layout in which the description field is never inside the pinned band -
 which means moving it above the body map, a UX change that needs approval.
 
+
+## Entry 51 - 2026-11-02 13:35 (+01:00) - The four UAT corrections to card fidelity (IMPLEMENTED)
+
+### 1. Task and boundaries
+
+Requested: implement four owner-approved corrections after the human UAT of the ISS-14/ISS-16 work,
+in the isolated release candidate only, and stop. The corrections were (1) the initial description
+always takes `In your words`; (2) the `How long` row is hidden while no duration has been collected;
+(3) the vocabulary row must not be filled merely to reach five words, and must not repeat a row the
+card already shows; (4) a comparison must be grounded in the user's own wording and satisfy the
+existing comparison contract.
+
+**Outcome in one line:** all four implemented, **237/237** unit tests and the whole red-team pack
+green, build green, a real-browser probe **62/62** with 0 console errors, and the visual harness at
+216 gates **175 PASS / 41 FAIL** - one gate moved, `J3.fields`, and it moved because correction 2
+hides a row that gate asserts by label.
+
+**What was not done, deliberately:** no question added or changed, no sixth card field, no change to
+the five-field schema, the API contract or the crisis handling, no Vocabulary Library, no ISS-15, no
+persistence, no analytics, no advice, nothing staged, committed, pushed, merged or deployed, and
+`.env.local` was never read.
+
+### 2. Compliance
+
+1. **Schema lock** - five fields, unchanged. Correction 2 changes what the *screen* renders, not what
+   the schema holds: `cardViewForPayload` still returns five rows, and `CF-29b` still pins the exact
+   five-field object.
+2. **Texture, not triage** - the question bank is byte-identical; `T6` still diffs Table 11 plus the
+   one recorded addition. Correction 4 is a *tightening* of what may be displayed, never a new
+   question and never a clinical provocation.
+3. **Patterns are vocabulary** - nothing counts, correlates or interprets. Correction 3 removes words;
+   it adds none, and it introduces no vocabulary list.
+4. **Crisis shield is numbers** - untouched. `T1` passes, the four contacts are unchanged, and the
+   initial description is still screened inside `interviewStep` before `wordCard` may read it.
+5. **Copy discipline** - no prohibited word introduced; the copy scan reads 59 files with zero hits and
+   the fixed line still renders on every screen.
+
+`.clinerules` is unchanged: `git hash-object` = `4755be10f7ba793756913e5b59868a091fb7731d`.
+
+
+### 3. Files changed
+
+| File | Status | Why |
+|---|---|---|
+| `src/lib/cardFidelity.ts` | modified | correction 1 (the description always takes the sentence); correction 3 (`reproduces`, and the two exclusions in `qualityWordsFrom`, which now takes the resolved rows); correction 4 (a three-word floor on the non-marker path of `isComparisonShaped`) |
+| `src/lib/cardView.ts` | modified | correction 2 - the new `displayRows`, which withholds the duration row while it is unanswered |
+| `src/components/CardView.tsx` | modified | renders `displayRows(model)` instead of `model.rows` |
+| `src/lib/cardFidelity.answers.test.ts` | modified | `CF-29` updated, `CF-30` renamed, **five new cases** (`CF-31`, `CF-31b`, `CF-32`, `CF-33`, `CF-34`) |
+| `src/lib/cardView.test.ts` | modified | **three new cases** for `displayRows` (correction 2) |
+| `src/lib/cardFidelity.test.ts` | modified | one end-to-end expectation updated (correction 3) |
+| `src/lib/interview.test.ts` | modified | two assertions updated (corrections 1 and 3) and the block renamed |
+| `BUILD-REPORT.md` | modified (this entry, appended) | the record |
+
+Not modified: `src/lib/{schema,questionBank,copy,regions,interview,interviewFlow,models,crisis}.ts`,
+every component except `CardView.tsx`, `tests/**`, `tools/**`, `modal/**`, `supabase/**`,
+`package.json`, `tsconfig.json`, `next.config.ts`, `.clinerules`, `.env.local`.
+
+Temporary, outside the repository: `%TEMP%\somamap_iss14_probe.mjs` (extended), `%TEMP%\s11-*.log`.
+
+### 4. Commands and results
+
+| Command | Exit | Result |
+|---|---|---|
+| `npx tsc --noEmit` | 0 | clean, run after the last edit |
+| `npm test` | 0 | **237/237 unit tests** (was 229); **red-team 8 PASS, 0 FAIL, 0 NOT IMPLEMENTED**; copy scan 59 files, zero hits |
+| `npm run build` | 0 | green, run twice (the second with the server stopped, so `.next` was never written under a running server) |
+| `node tools/visual-harness/run.mjs` | 1 | 216 gates: **175 PASS, 41 FAIL**, 0 console errors, 12 screenshots. Diffed against the stored ISS-16 report: **exactly one gate changed**, `J3.fields` PASS -> FAIL, detail `How long` |
+| `node %TEMP%\somamap_iss14_probe.mjs` | 0 | **62/62** (was 54/54), 0 console errors - crisis, description preservation, editing, region change, restart, and the four corrections |
+| `git hash-object .clinerules` | 0 | `4755be10f7ba793756913e5b59868a091fb7731d` - unchanged |
+
+
+### 5. What each correction turned into
+
+| Correction | Implementation | Evidence |
+|---|---|---|
+| 1 - description priority | the description, when present, is the sentence **unconditionally**; no length comparison is made against the answers, and it is copied whole (trimmed only around it) | `CF-31`, `CF-31b`; `interview.test.ts`; the probe's "the short description is the card's sentence, not the longer answer" |
+| 2 - duration display | `displayRows` omits the `duration` row while it is unanswered; the other four rows keep their explicit "Not answered yet" | three `cardView.test.ts` cases; the probe's two correction-2 checks |
+| 3 - vocabulary quality | two exclusions, both about adding nothing the card does not already show: a word is dropped when every text it came from is the phrase under `It feels like`, and the row is left empty when the words that remain are exactly the words of `It feels like` or `In your words` | `CF-32`, `CF-33`; the probe's words-row check; the three updated expectations in section 6 |
+| 4 - comparison validation | the non-marker path of `isComparisonShaped` now needs **three words**; a stated resemblance is still accepted at any length, and one word is still refused | `CF-34`; `CF-33`; the probe's two correction-4 checks |
+
+**Why "big bang" was accepted** (the owner's question): the non-marker path asked only for *two* words
+and one word that survived the quality filter, and "big bang" satisfied both - it states no resemblance
+and describes nothing, but nothing in the contract asked it to. It is now refused, while
+"A heavy blanket resting on my chest." is still accepted.
+
+### 6. The test changes, and why they preserve or strengthen the original intent
+
+| Change | Why it is not a weakening |
+|---|---|
+| `CF-29`: `["tight"]` -> `[]` | the session's whole text is the word "tight" and `In your words` already shows it; a row holding exactly the words of a phrase the card shows in full adds nothing (correction 3). The word is still on the card, verbatim, as the sentence |
+| `cardFidelity.test.ts` end to end: `["foggy","window","dull","ache","behind"]` -> `["dull","ache","behind"]` | "foggy" and "window" exist only in the comparison, which the card shows in full one row below (correction 3) |
+| `interview.test.ts` x2: `["tight","heavy","scarf","knotted"]` -> `["tight","heavy"]` | "scarf" and "knotted" came only from the comparison. The assertions that the words are the user's own, and that a time word is never presented as one, are untouched |
+| `interview.test.ts`: the "all week" case now asserts the sentence **is** the description | correction 1 supersedes "the longest text wins"; the case still proves that a description of nothing but time expressions contributes no quality word |
+| `CF-30` and its block renamed | the old names encoded the superseded "when it is the longest text" rule |
+
+Every gate, threshold and measurement in `tools/visual-harness/run.mjs` is byte-identical; no test was
+removed and no assertion was relaxed.
+
+### 7. The one gate that moved
+
+`J3.fields` asserts that the card shows **five** field labels, and the harness's journey
+(`"a tight band across my chest"`, `"tight, and steady"`, `"a warm, spreading feeling"`) collects no
+duration - no shipped question asks for one. Correction 2 therefore hides `How long`, the label is
+gone, and the gate fails. It was left failing on purpose: rewriting the gate to expect four labels, or
+teaching the journey to type a time phrase, would both be the harness following the code instead of
+checking it. The tension between "the card shows five labels" and "an unanswered duration is hidden"
+is the owner's to resolve, and the options are in section 9.
+
+### 8. Warnings and unresolved
+
+1. **`J3.fields` fails by design** (above). The other 40 failures are the pre-existing open gates
+   (`ISS-07`, `ISS-13`, `ISS-09`/`N1`/`N2`/`S4`), unchanged.
+2. **The vocabulary row can still hold weak words.** Correction 3 removes words that only repeat a row
+   the card already shows; it does not judge whether a word describes a sensation. In the probe's
+   session the row reads `spreads, back, both, arms`. Deciding that "both", "big" or "bang" are not
+   sensation words is a vocabulary judgement, and it belongs to the Vocabulary Library task the owner
+   deferred - so no word list was added here.
+3. **Corrections 3 and 4 interact.** In the owner's UAT session "big bang" *was* the comparison, so
+   correction 3 removed the words because they repeated that row. Now correction 4 refuses the phrase
+   as a comparison, and if that answer is neither the sentence nor the comparison its words are the
+   only place it appears - so they are kept, because dropping them would lose the user's answer
+   entirely. `CF-33` pins the case where it is the sentence: the row is empty and the phrase is quoted
+   verbatim under `In your words`.
+4. **`duration` is still usually empty**, and is now hidden rather than explained. Nothing infers it;
+   a duration question is ISS-15's work.
+5. **The dev server's `127.0.0.1` host does not hydrate** (diagnosed in the previous session): use
+   `http://localhost:3311` for a dev-server UAT. The production build is unaffected.
+6. **Nothing is committed, pushed or deployed**, and `.clinerules` and `.env.local` are untouched.
+
+### 9. Next step
+
+Human UAT of the four corrections - on `http://localhost:3311` if a dev server is used - and a decision
+on `J3.fields`: accept the flip, or authorise the harness's journey to collect a duration, or re-scope
+correction 2. The five open issues and ISS-15 are untouched and remain the owner's to sequence.
+
+
+## Entry 52 - 2026-11-02 14:30 (+01:00) - The J3.fields gate rewritten to the approved behaviour, and the build provenance verified (HARNESS + VERIFICATION)
+
+### 1. Task and boundaries
+
+Requested, after the owner reviewed Entry 51: correct the `J3.fields` visual-harness expectation to the
+approved product behaviour (five schema fields always; the `How long` row hidden when no duration was
+collected and shown when one was), without weakening the schema assertion, without removing the
+duration coverage, and without merely reducing the expected count from five to four. Also: no further
+vocabulary work of any kind, and a verification of the production server's provenance and of every
+suite.
+
+**Outcome in one line:** `J3.fields` now asserts the payload's five fields **and** both render states,
+the harness is back to the Entry 50 baseline at **216 gates, 176 PASS / 40 FAIL with zero gates
+flipped**, 237/237 unit tests and the red-team pack are green, and the running server is a build of the
+current working tree, started after that build.
+
+**What was not done, deliberately:** no vocabulary change of any kind (no blacklist, no word list, no
+semantic classifier, no new exclusion), no application source change, no test change, nothing staged,
+committed, pushed, merged or deployed, and `.env.local` was never read.
+
+### 2. Why the gate needed a probe adjustment, not just a new expectation
+
+The old gate searched the card's text for five labels. The approved behaviour makes that impossible for
+an ordinary session: no shipped question asks how long, so a card normally has no duration and the row
+is hidden - the label is legitimately absent.
+
+The harness's own journey cannot produce the other state either: it types `"tight, and steady"` and
+`"a warm, spreading feeling"`, neither of which carries a time expression, so no duration is collected.
+Reducing the expectation to four labels would have removed the duration coverage the owner explicitly
+asked to keep. The gate therefore had to read **two** sessions: the ordinary one, and a second identical
+walk whose first answer mentions time (`"it has been there for two days"`), which is the only way a
+duration reaches a card today. That second session is a probe adjustment, recorded here, and it is the
+reason the journey now sends eight interview turns instead of four.
+
+### 3. Files changed
+
+| File | Status | Why |
+|---|---|---|
+| `tools/visual-harness/run.mjs` | modified (the only file changed in this phase) | `J3.fields` rewritten; `/api/` response bodies captured over CDP so the gate can assert the payload; the journey runs a second session with a duration |
+| `BUILD-REPORT.md` | modified (this entry, appended) | the record |
+
+Not modified: every `src/**` file, every test, `modal/**`, `supabase/**`, `package.json`,
+`tsconfig.json`, `next.config.ts`, `.clinerules`, `.env.local`. The 18 modified files carried in from
+Entries 51 and earlier are untouched by this phase.
+
+Temporary, outside the repository: `%TEMP%\s12_j3_sensitivity.cjs`, `%TEMP%\s12-*.log`.
+
+
+### 4. The J3.fields assertions, before and after
+
+**Before** (one line, one state, text search only):
+
+```js
+const fieldLabels = ["Where", "Words you chose", "It feels like", "How long", "In your words"];
+const missing = fieldLabels.filter((label) => !cardText.includes(label));
+gate("J3.fields", `${prefix}: the card shows the five field labels`, missing.length === 0, missing.join(",") || "all five");
+```
+
+It asserted the presence of five label *strings* in the card's text. It could not tell a duplicated row
+from a single one, could not see an empty value, could not see a schema change, and - with the row
+correctly hidden - could not pass at all.
+
+**After** (one gate, two sessions, six assertions per session, read structurally):
+
+```js
+const CARD_FIELDS = ["location_label", "quality_words", "intensity_metaphor", "duration", "user_own_sentence"];
+const CARD_LABELS = { location_label: "Where", quality_words: "Words you chose",
+                      intensity_metaphor: "It feels like", duration: "How long", user_own_sentence: "In your words" };
+
+// 1. the internal payload the route validated carries exactly the five approved fields
+if (keys.join(",") !== [...CARD_FIELDS].sort().join(",")) problems.push(...);
+
+// 2. the rendered rows are the hero plus the rows this session can answer, in order,
+//    with How long present only when a duration was collected
+if (renderedLabels.join(" | ") !== expectedLabels.join(" | ")) problems.push(...);
+
+// 3. no row is rendered twice, and no rendered row is empty
+if (new Set(renderedLabels).size !== renderedLabels.length) problems.push(...);
+if (values.some((value) => value.length === 0)) problems.push(...);
+
+// 4. the dt/dd pairs match the rows read
+if (rows.dtCount !== rows.fields.length || rows.ddCount !== rows.fields.length) problems.push(...);
+
+// 5. the How long row, when shown, quotes the phrase the session itself supplied
+if (withDuration && duration?.value !== withDuration) problems.push(...);
+
+gate("J3.fields",
+  `${prefix}: the card carries five schema fields, and renders How long only when a duration was collected`,
+  firstProblems.length === 0 && secondProblems.length === 0,
+  "no duration: 4 rows | with duration: 5 rows");
+```
+
+The five schema fields are now asserted on the **payload** - read from the `/api/interview` response
+body, captured over CDP - so hiding a row can never hide a schema change. The row count is asserted on
+the **screen**, once per state. The duration coverage is kept twice over: the row must be absent when
+nothing was collected, present when something was, and must quote that phrase verbatim.
+
+Live detail, from the run against the current build:
+
+```
+PASS  [J3.fields] journey: the card carries five schema fields, and renders How long only when a duration was collected
+      [no duration: 4 rows | with duration: 5 rows]
+```
+
+### 5. Sensitivity evidence
+
+`%TEMP%\s12_j3_sensitivity.cjs` lifts the real `CARD_FIELDS` / `CARD_LABELS` / `cardShapeProblems`
+source out of the harness file and runs it, so the cases below exercise the gate's own code. **8 of 8
+behaved as required:**
+
+| Case | Caught |
+|---|---|
+| the correct card, no duration | nothing (correct) |
+| a missing row | `rows ["In your words","Where","Words you chose"]` |
+| a duplicated row | `rows [..."Where"]` + `a row is rendered twice` |
+| an empty row | `a rendered row is empty` |
+| `How long` rendered when no duration was collected | `rows [..."How long"]` |
+| a payload carrying a sixth field | `internal payload keys [..."possible_cause"...]` |
+| the duration row quoting something the session did not supply | `rows [...]` + `How long shows "(no row)"` |
+| the correct card with a duration, row shown and verbatim | nothing (correct) |
+
+### 6. Commands and results
+
+| Command | Exit | Result |
+|---|---|---|
+| `npx tsc --noEmit` | 0 | clean, run before and after the harness change (the harness is `.mjs`, outside the tsconfig include, so it cannot affect this) |
+| `npm test` | 0 | **237/237 unit tests**; **red-team 8 PASS, 0 FAIL, 0 NOT IMPLEMENTED**; copy scan zero hits |
+| `npm run build` | 0 | green, with the server stopped first |
+| `node tools/visual-harness/run.mjs` | 1 | **216 gates: 176 PASS, 40 FAIL**, 0 console errors, 12 screenshots |
+| diff against the stored Entry 50/51 baseline report | - | **216 gates both runs, 0 flipped, 176/40 both** |
+| `node %TEMP%\somamap_iss14_probe.mjs` | 0 | **62/62**, 0 console errors - crisis, description preservation, editing, region change, restart, and the four corrections |
+| `node %TEMP%\s12_j3_sensitivity.cjs` | 0 | **8/8** sensitivity cases |
+| `git hash-object .clinerules` | 0 | `4755be10f7ba793756913e5b59868a091fb7731d` - unchanged |
+
+The 40 failures are the pre-existing open gates (`ISS-07`, `ISS-13`, `ISS-09`/`N1`/`N2`/`S4`) - the
+same 40 that Entry 50 recorded, at the same gate ids, with no gate added, removed or weakened.
+
+
+### 7. Production-server provenance
+
+The report for Entry 51 claimed a production server was running on 3311. That claim was checked
+rather than assumed, and the check found a real ordering problem worth recording.
+
+**What produced the build.** The working tree at HEAD `af28cb308fe3692b92b794c5747ee58f93c89433`,
+branch `release/somamap-mvp-candidate`, with the 18 modified files carried in from Entries 51 and
+earlier. The last source edit was `src/lib/cardFidelity.test.ts` at **13:26:34**; `BUILD-REPORT.md` was
+appended afterwards at 13:33:35 and is documentation, not a build input.
+
+**The finding.** The `.next` on disk had last been written at **13:31:55**, but the server process
+(pid 15440) had started at **13:27:33** - *before* that write. Cause: the stop step before that build
+filtered processes by a command line containing the candidate's absolute path, and a server started
+with a relative path (`node node_modules/next/dist/bin/next start -p 3311`) carries no such path, so it
+was never stopped. **That was my error, and it is the exact hazard Entry 50 recorded.**
+
+**Why it was nevertheless not stale.** Three independent checks:
+
+1. the content-hashed chunk files the served page references (`306pqdnab9r4z.css`, `1x6obpmlu1_c2.js`,
+   `1e0b2t498zz0z.js`, `2ki52vdnbo2ft.js`) all exist in that `.next` and all carry the **last** build's
+   mtimes (13:31:49-13:31:50) - a manifest from an earlier build would name files that build wrote;
+2. the page's own **server-side** behaviour matched the current source: correction 1 lives in
+   `cardFidelity.ts`, runs inside the API route, and the browser probe verified it against that server;
+3. `/api/interview` was first called at 13:35, i.e. after the last build, so the route module was
+   loaded from the current `.next`.
+
+Both builds in that window came from the same unchanged source, which is why the second one rewrote the
+same content-hashed names.
+
+**What was done.** Because the owner's instruction for this phase includes `npm run build` and forbids
+writing `.next` while a server is running, the server was stopped **by pid**, the build was re-run, and
+a fresh server was started - with an absolute path this time, so it can be identified:
+
+| Fact | Value |
+|---|---|
+| build finished (newest `.next` file) | **14:23:53** |
+| new `BUILD_ID` | `NYlot1o7YQL01dD9o5YBk` |
+| server pid / started | **2128 / 14:24:04** (after the build) |
+| server command line | `node ...\somamap-release-candidate\node_modules\next\dist\bin\next start -p 3311` - **`next start`, not `next dev`** |
+| `/checkin` | 200, 14,906 bytes |
+| assets the served page references | 13, all present in this build (by filename) |
+| interactive controls | driven end to end by the probe (62/62) and the harness journey, against this server |
+
+### 8. Warnings and unresolved
+
+1. **The vocabulary decision is recorded, not implemented.** No blacklist, no word list, no semantic
+   classifier, no new exclusion was added, and no user-owned language is discarded. The row can still
+   hold weak words (`spreads, back, both, arms` in the probe's session); that judgement stays with the
+   Vocabulary Library task.
+2. **The journey now runs two sessions**, so it sends eight interview turns and takes longer. That is
+   the cost of asserting both states; the gate count is unchanged at 216.
+3. **The harness reads response bodies over CDP.** If a future Next version streams the route's JSON,
+   `Network.getResponseBody` may fail; the failure is recorded in `apiResponses` and surfaces as a gate
+   problem rather than being swallowed.
+4. **The 40 open gates are unchanged** (`ISS-07`, `ISS-13`, `ISS-09`/`N1`/`N2`/`S4`).
+5. **The stale-server hazard is now known to be reachable.** Any future stop step must identify the
+   server by its listening pid, not by a command-line filter.
+6. **Nothing is committed, pushed or deployed**, and `.clinerules` and `.env.local` are untouched.
+
+### 9. Next step
+
+Human UAT of the four corrections on `http://localhost:3311` if a dev server is used, against this
+build. No product change is proposed: the vocabulary question and the five open issues remain the
+owner's to sequence.
+
+---
+
+## Entry 53 - 2026-11-02 18:13 (+01:00) - The model boundary made asynchronous, with mock-mode behaviour preserved (IMPLEMENTED)
+
+### 1. Task and boundaries
+
+Requested (the owner's Phase 1 brief, following the approved Baseten integration plan): convert the
+synchronous model boundary to asynchronous operation **while preserving existing mock-mode
+behaviour**. Six required changes: `ModelAdapter.interview` returns `Promise<unknown>`; `wordCard` is
+asynchronous and awaits the adapter response; `interviewStep` is asynchronous and awaits `wordCard`;
+the API route awaits `interviewStep`; every affected test call site awaits; and the existing
+route-wiring red-team check is extended to verify that the route awaits `interviewStep`.
+
+Authorised scope: three production files (`src/lib/models.ts`, `src/lib/interview.ts`,
+`src/app/api/interview/route.ts`) and five test files (`src/lib/models.test.ts`,
+`src/lib/interview.test.ts`, `src/lib/interviewFlow.test.ts`,
+`tests/redteam/t2-advice-injection.ts`, `tests/redteam/t4-prompt-injection.ts`). Two further files
+were needed and are recorded in section 8: `tests/redteam/types.ts` and `tests/redteam/run.ts`
+(approved by the owner before they were touched), and `src/lib/cardFidelity.answers.test.ts` and
+`src/lib/cardFidelity.test.ts` (discovered while sweeping call sites, reported, and provisionally
+approved afterwards).
+
+**Outcome in one line:** the boundary is asynchronous end to end, `npm test` reports the **same 52
+suites / 237 tests** and the **same 8/8 red-team rows** as before the change, `npm run lint` is 0
+errors, `npm run build` and `npx tsc --noEmit` are green, `.clinerules` and HEAD are unchanged, and
+the only behavioural difference anywhere is that a provider that cannot answer now produces a
+**rejected promise** instead of a synchronous throw - which the existing `catch` in `wordCard`
+already handles, so both fail-closed paths (the reviewed fallback card and one content-free record)
+are unchanged.
+
+**What was not done, deliberately:** no provider adapter and no Baseten code of any kind; no API
+call, network request, package or dependency; no change to `.clinerules`, `src/lib/schema.ts`,
+`src/lib/questionBank.ts`, `src/lib/crisis.ts`, `src/lib/cardFidelity.ts`, `src/lib/patterns.ts`,
+any component or any copy; no persistence; `MODEL_MODE` still defaults to mock; nothing staged,
+committed, pushed, merged, reset, stashed, discarded or deployed; `.env.local` was never read; and
+no credential was referenced, read or recorded. **No assertion, fixture, question, region label or
+copy string was changed.**
+
+### 2. Compliance
+
+`.clinerules` was followed. Rule by rule:
+
+- **Rule 1 - schema lock.** Untouched. `sensationCardSchema` is unchanged, `validateDraftCard` is
+  still `.strict()`, and the fallback path is unchanged: a provider that cannot answer and a draft
+  that will not validate both still render `FALLBACK_CARD` with one content-free record.
+- **Rule 2 - texture, not triage.** Untouched. No question was written, reworded or reordered;
+  `questionBank.ts` is unmodified and T6 still diffs the bank against Table 11 plus the
+  owner-approved Q14.
+- **Rule 3 - patterns are vocabulary, not conditions.** Untouched. `patterns.ts` was neither read
+  into this change nor modified, and the model is not used to author roundups.
+- **Rule 4 - crisis shield is numbers, not triage.** Untouched, and the order is preserved: the
+  lexicon screening of every answer and of the description still runs **before** the card is worded,
+  and long before the wording is awaited.
+- **Rule 5 - copy discipline.** Untouched. No UI string changed; T5 still scans 58 text files with
+  zero prohibited hits and the fixed line still renders from `DisclaimerFooter` alone.
+- **Build rules.** All model calls remain server-side and the key rule is untouched (`.env.local`
+  was never read). Every generated card still passes Zod `.strict()` validation before render. The
+  region label still comes from the fixed geometric map. Nothing in this phase interprets user data.
+
+### 3. Why the boundary had to become asynchronous
+
+`wordCard` called `deps.adapter.interview(snapshot)` synchronously inside a `try`/`catch`,
+`interviewStep` was synchronous, and the route awaited nothing. A live provider can only be reached
+by a network call, and an HTTP call cannot be awaited through a synchronous boundary. The
+alternative - keeping the synchronous pair and adding an asynchronous twin beside it - was rejected:
+it would leave two code paths free to drift, and the red-team pack would then be exercising the path
+that does not ship. Converting the boundary keeps **one** path, and it is the path every unit test
+and every red-team row already drives.
+
+Nothing else had to move, because the boundary was already the single door. `prescreen` and
+`questionSequence` never call a provider (the prescreen is the local lexicon), so both stay
+synchronous; `validateDraftCard` is a pure `safeParse`, so it stays synchronous; and the route's
+handler was already `async` and already returned a `Response`, so awaiting the state machine changed
+no signature it exposes.
+
+### 4. Files changed
+
+| File | Status | Why |
+|---|---|---|
+| `src/lib/models.ts` | modified | `ModelAdapter.interview` returns `Promise<unknown>`; `wordCard` is `async` and returns `Promise<WordedCard>`, with `payload = await deps.adapter.interview(snapshot)` **inside the existing `try`**; `mockAdapter.interview` and `unavailableAdapter.interview` are `async`; doc comments |
+| `src/lib/interview.ts` | modified | `interviewStep` is `async` and returns `Promise<InterviewStepResult>`; `const worded = await wordCard(...)`; doc comments |
+| `src/app/api/interview/route.ts` | modified | `const result = await interviewStep(...)`; doc comment. Four added comment lines and one changed line - the whole diff for this file |
+| `src/lib/models.test.ts` | modified | 7 `await wordCard`; 5 adapter overrides made `async`; 7 `it` callbacks made `async` |
+| `src/lib/interview.test.ts` | modified | 21 `await interviewStep` across 13 `it` blocks |
+| `src/lib/interviewFlow.test.ts` | modified | `routeAnswer`, `turn` (both), `completed` and `replayThrough` made `async`; 33 `await` call sites; 16 `it` callbacks made `async` |
+| `tests/redteam/t2-advice-injection.ts` | modified | row made `async`; 2 `await wordCard`; adapter override made `async`; **new wiring clause** requiring the route to await `interviewStep` |
+| `tests/redteam/t4-prompt-injection.ts` | modified | row made `async`; 7 `await interviewStep`; adapter override made `async` |
+| `tests/redteam/types.ts` | modified (section 8) | `run?: () => RedTeamOutcome \| Promise<RedTeamOutcome>` |
+| `tests/redteam/run.ts` | modified (section 8) | `runRow`/`main` made `async`; `await row.run()` inside the existing `try`; `await runRow(row)` per row, sequentially; `void main()` |
+| `src/lib/cardFidelity.answers.test.ts` | modified (section 8) | `runSession` helper made `async`; 2 `await` call sites; 2 `it` callbacks made `async` |
+| `src/lib/cardFidelity.test.ts` | modified (section 8) | `completeSession` helper made `async`; 4 `await` call sites; 4 `it` callbacks made `async` |
+| `BUILD-REPORT.md` | modified (this entry, appended) | the record |
+
+Not modified: `.clinerules`, `src/lib/schema.ts`, `src/lib/questionBank.ts`, `src/lib/crisis.ts`,
+`src/lib/cardFidelity.ts`, `src/lib/patterns.ts`, `src/lib/cardView.ts`, `src/lib/copy.ts`,
+`src/lib/interviewFlow.ts`, every component, `modal/**`, `supabase/**`, `package.json`,
+`package-lock.json`, `tsconfig.json`, `next.config.ts`, `.env.example`, `.env.local`,
+`tools/visual-harness/**`. The 13 modified files and the 2 untracked zero-byte `.txt` files carried
+in from Entries 51-52 are untouched by this phase.
+
+Temporary, outside the repository: `%TEMP%\somamap_p1_eslint.txt`, `%TEMP%\somamap_p1_verify.txt`,
+`%TEMP%\somamap_resume.txt`.
+
+### 5. The change, before and after
+
+**The adapter contract** (`src/lib/models.ts`):
+
+```ts
+// before
+interview(snapshot: ModelSnapshot): unknown;
+// after
+interview(snapshot: ModelSnapshot): Promise<unknown>;
+```
+
+`mockAdapter.interview` and `unavailableAdapter.interview` gained `async` and nothing else. For the
+unavailable adapter that turns a synchronous `throw` into a **rejected promise** - the same outcome
+for every caller, because the one caller awaits it inside a `try`.
+
+**The one door into a card** (`wordCard`):
+
+```ts
+// before
+export function wordCard(snapshot: ModelSnapshot, deps: WordCardDeps): WordedCard {
+  let payload: unknown;
+  try { payload = deps.adapter.interview(snapshot); } catch { /* fallback + record */ }
+// after
+export async function wordCard(snapshot: ModelSnapshot, deps: WordCardDeps): Promise<WordedCard> {
+  let payload: unknown;
+  try { payload = await deps.adapter.interview(snapshot); } catch { /* fallback + record */ }
+```
+
+The `await` sits **inside** the `try`, and that is the whole safety argument: a rejected provider
+promise reaches the same `catch` a thrown error reached, so a provider that cannot answer still
+renders the reviewed fallback card with one `provider-unavailable` record, and a draft that will not
+validate still renders the fallback with one `unrecognized_keys`/`shape` record.
+
+**The state machine** (`interviewStep`): now `async`, with one `await` -
+`const worded = await wordCard({ answers, regionLabel: regionLabelFrom(parsed.regionLabel), description }, deps);`.
+The order is untouched: the lexicon screening of the new answer, then the screening of the
+description, then completion, then the wording.
+
+**The route**: `const result = await interviewStep(body, { adapter: adapterFor(mode), logger: consoleViolationLogger, mode });`.
+`result` is the resolved `InterviewStepResult`, never a promise, and every branch still returns
+`NextResponse.json(...)`, so no promise can be serialised into a response body.
+
+**The new red-team clause** (`t2`), added after the existing wiring check:
+
+```ts
+if (!/\bawait\s+interviewStep\s*\(/.test(routeSource)) {
+  return { status: "FAIL", detail: "the interview route calls interviewStep without awaiting it" };
+}
+```
+
+The rationale matters: every other clause in the pack drives the boundary directly, so a route that
+called the asynchronous machine without awaiting it would answer with a promise instead of a turn
+and **every other clause would still pass**. The pattern tolerates any spacing, so a reformat cannot
+make this clause pass by accident. T2's evidence line now ends "…with the server-side logger and
+awaits it".
+
+**The runner** (`run.ts`): `const outcome = await row.run();` inside the existing `try` (a rejected
+row is caught and printed as `FAIL  threw: …`); `const report = await runRow(row);` per row -
+sequential, no `Promise.all`, no `forEach`, so all eight rows settle in Table 7 order; and
+`void main();`. `main` cannot reject: `runRow` returns a value on every path, `printRow` only reads
+`report.status` (always one of the four literals `runRow` produces) and iterates `report.unverified`
+(always an array). No row performs asynchronous I/O - the only `await`-shaped text outside t2/t4 is a
+regex literal inside `t8-delete-all.ts` - so every awaited value settles within microtasks, Node
+drains those before exit, and `process.exitCode` is therefore always set before the process ends.
+
+### 6. Evidence that mock-mode behaviour is unchanged
+
+- **The suite is the same suite.** 52 suites / 237 tests before and after, all passing. No test was
+  added, removed, renamed, skipped or weakened.
+- **The pack is the same pack.** 8 PASS / 0 PARTIAL / 0 FAIL / 0 NOT IMPLEMENTED, with T1 and T3-T8
+  reporting byte-identical evidence lines; T2's differs only by the clause it now proves.
+- **The mock's value is identical.** `prescreen` and `questionSequence` were not touched at all
+  (still synchronous). `mockAdapter.interview` now returns `mockCardFrom(snapshot)` from an `async`
+  function - the same value, unwrapped by one `await` - so every mock-mode card is bit-identical.
+- **No assertion moved.** The only changed lines in any test file are `it` callbacks gaining
+  `async`, call sites gaining `await`, helper signatures, and doc comments; the arithmetic in
+  section 8 accounts for every changed line.
+- **The sweep is clean.** A repository-wide scan for `interviewStep(`, `wordCard(`, `runSession(`,
+  `completeSession(`, `routeAnswer(`, `replayThrough(` or `turn(` on a line carrying neither `await`
+  nor `async` returns exactly one hit: `parseTurn`, a different, synchronous function.
+- **The default is still mock.** `modelMode()` is unchanged - anything other than an explicit
+  `MODEL_MODE=live` is mock - and `adapterFor("live")` still returns the failing adapter, so live
+  mode still fails closed to the reviewed fallback card.
+
+### 7. Commands and results
+
+| Command | When | Exit | Result |
+|---|---|---|---|
+| `git status --short` | before | 0 | **21 entries** - 19 modified files and 2 untracked zero-byte `.txt` files |
+| `git rev-parse HEAD` | before | 0 | `af28cb308fe3692b92b794c5747ee58f93c89433` |
+| `git hash-object .clinerules` | before | 0 | `4755be10f7ba793756913e5b59868a091fb7731d` |
+| `npm test` | before | 0 | **237/237 unit** (52 suites); **red-team 8 PASS, 0 FAIL, 0 NOT IMPLEMENTED**; "all 2 step(s) passed" |
+| `npm test` | after | 0 | **237/237 unit** (52 suites); **red-team 8 PASS, 0 FAIL, 0 NOT IMPLEMENTED**; "all 2 step(s) passed" |
+| `npm run lint` (`npx eslint .`) | after | 0 | **0 errors, 2 warnings** - both pre-existing in `tools/visual-harness/run.mjs` (lines 147 and 468), a file this phase did not touch |
+| `npm run build` | after | 0 | compiled successfully in 3.2s; "Finished TypeScript in 4.7s"; 8 routes, `/api/interview` still dynamic |
+| `npx tsc --noEmit` | after | 0 | no diagnostics |
+| un-awaited call sweep over `src/**` and `tests/**` | after | 0 | one hit - `parseTurn`, a different, synchronous function |
+| `git diff --cached --name-only` | after | 0 | empty - **0 staged files** |
+| `git status --short` | after | 0 | **27 entries** - 25 modified files and the same 2 untracked files |
+| `git rev-parse HEAD` | after | 0 | `af28cb308fe3692b92b794c5747ee58f93c89433` - unchanged |
+| `git hash-object .clinerules` | after | 0 | `4755be10f7ba793756913e5b59868a091fb7731d` - unchanged |
+
+The two `npm test` rows are the point of the phase: the suite count, the suite names and the red-team
+outcome are identical before and after, with the same 40-gate list untouched, so the asynchronous
+conversion changed no behaviour that any check can see.
+
+Two mechanical notes. `npm run build` rewrote the gitignored `.next/` and `npx tsc --noEmit` rewrote
+the gitignored `tsconfig.tsbuildinfo`; neither is tracked and neither appears in `git status`. And
+because the shell integration swallowed piped `npm` output twice, both the lint and the final test
+output were captured to `%TEMP%` files outside the repository and read from there; the numbers above
+are those captures, not a retyping.
+
+### 8. The files outside the authorised list
+
+**Approved before they were touched** (`tests/redteam/types.ts`, `tests/redteam/run.ts`). The pack
+runner called rows synchronously: `types.ts` typed `run?: () => RedTeamOutcome`, and `run.ts` did
+`const outcome = row.run();`. An asynchronous row would have made `outcome.status` undefined, and
+`printRow`'s `report.status.padEnd(...)` would then have thrown a `TypeError` - breaking **all eight
+rows** - while TypeScript would have rejected `() => Promise<RedTeamOutcome>` where
+`() => RedTeamOutcome` was expected. Both files sit outside the enumerated scope, so the owner was
+asked **before** anything was edited; the extension was approved, and the change was limited to
+widening the type and awaiting the row.
+
+**Discovered while sweeping call sites** (`src/lib/cardFidelity.answers.test.ts`,
+`src/lib/cardFidelity.test.ts`). These two drive `interviewStep` directly, through the `runSession`
+and `completeSession` helpers, so they are affected call sites under the brief's requirement 5
+("update all affected test call sites to await the asynchronous functions"). Leaving them would have
+failed the type check and the unit suite. They were reported in the Phase 1 report rather than
+quietly changed, and the owner provisionally approved retaining them.
+
+**The proof that retention is limited to the async/await adaptation.** The tree already carried
+uncommitted work in those two files from Entries 51-52, so the diff alone cannot separate this
+phase's lines from the earlier ones - the check is therefore arithmetic. `git diff --stat` recorded
+those two files at **311** and **13** changed lines at the Phase 1 baseline (the same tree state as
+the audit turn: 21 status entries, identical file list). They now read **330** and **38**
+(`--numstat`: 315/15 and 25/13). The deltas are **+19** and **+25**, which is exactly what the
+recorded edits account for:
+
+| File | Baseline | Now | Delta | The edits that account for it |
+|---|---|---|---|---|
+| `cardFidelity.answers.test.ts` | 311 | 330 | **+19** | 5 doc-comment lines + 7 changed lines x 2 = 19 |
+| `cardFidelity.test.ts` | 13 | 38 | **+25** | 5 doc-comment lines + 10 changed lines x 2 = 25 |
+
+Every changed line is therefore accounted for by an `async`/`await` adaptation or a doc comment, so
+no assertion, fixture, expectation or unrelated logic line can be among them. The same arithmetic
+cross-checks on a file that was unmodified before this phase: `src/lib/models.test.ts` is 38 changed
+lines = 7 `it` headers x 2 + 7 `wordCard` call sites x 2 + 5 adapter overrides x 2, exactly. A
+line-by-line grep of both files returns the same set - 8 lines in the first (1 comment + 7 code) and
+11 in the second (1 comment + 10 code) - and every one of them is an `async` signature or an `await`
+call site.
+
+### 9. Warnings and unresolved
+
+1. **The two lint warnings are pre-existing and are not this phase's.**
+   `tools/visual-harness/run.mjs` lines 147 and 468 (an unused `note`, an unused `pressKey`). That
+   file was not touched; the same two warnings were present at the baseline.
+2. **`unavailableAdapter.prescreen` still returns `crisis: true`.** That is Table 10's documented
+   provider-error behaviour and was deliberately left alone: owner decision 3 ("provider errors,
+   timeouts, missing credentials and malformed responses must never trigger the crisis screen") is
+   Phase 2 work, and changing it here would have been an unapproved behaviour change smuggled into an
+   async-conversion task.
+3. **`deps.adapter.prescreen(...)` is called synchronously and is not wrapped in a `try`/`catch`.**
+   No current adapter can throw there, but a future live adapter that did would reject
+   `interviewStep`, and the route would answer 500 - fail-closed (no card, nothing persisted), but it
+   should be wrapped when the live adapter lands. Recorded here so Phase 3 does not have to
+   rediscover it.
+4. **13 modified files and 2 untracked zero-byte `.txt` files** carried in from Entries 51-52 remain
+   in the tree. This phase did not touch them and did not revert them.
+5. **`.env.local` was never read**, no credential was referenced, and this entry records none - in
+   keeping with the file's own rule.
+6. **No live provider exists.** `MODEL_MODE` still defaults to mock, and live mode still routes to
+   the adapter that refuses, so the shipped behaviour is unchanged for a user.
+7. The `%TEMP%` capture files listed in section 4 remain on disk. Nothing was written inside the
+   repository except this appended entry.
+
+### 10. Next step
+
+Phase 2 (safety hardening) needs the owner's authorisation, and it depends on six Phase 0 decisions
+that are still open: the `.env.example` variable names; the external-processing disclosure copy and
+where it is acknowledged; the reviewed advice-guard word and phrase lists; the duration policy (the
+reviewed bank still has no duration question); the provider-outage copy; and the reason-code
+vocabulary. **No Baseten adapter exists and none was started.** Nothing here is committed, pushed or
+deployed.
+
+## Entry 54 - 2026-11-04 09:31 (+01:00) - Contextual vocabulary per question, and the words of not knowing removed from `quality_words` (`ISS-23`, IMPLEMENTED)
+
+### 1. Task and boundaries
+
+Requested (the owner's brief of 2026-11-04, after a manual session on the protected Preview and a card
+pasted back): two defects visible in one finished card, and one word-filter change. **(A)** the vocabulary
+helper showed the same list on every question; **(B)** the card's `intensity_metaphor` row read "Not
+answered yet" although the comparison question had been asked and answered; **(C)** - found while
+reproducing (A) and (B) - the words "don't", "know" and "describe" were shown under "Words you chose".
+
+Authorised: `src/lib/vocabulary.ts`, `src/components/InterviewChat.tsx`, `src/lib/cardFidelity.ts` and
+tests. Five owner decisions, all approved before any code was written: the per-question grouping table;
+**no** helper where a question's group is empty; the narrow uncertainty filter; the revision-flow helper;
+and "leave the 'Not answered yet' copy unchanged for this implementation".
+
+**Outcome in one line:** the helper's list is now the question's own vocabulary, taken from the reviewed
+bank's own wording, so the comparison question offers the four comparison phrases that already satisfy
+`isComparisonShaped` and a person with no words can fill the metaphor row through the **existing**
+pipeline; the words of not knowing no longer reach `quality_words` on either path; and nothing else moved
+- **493/493 unit tests**, red-team **8/8**, `tsc`, `lint` and `build` green, the harness journey gates
+passing and its 43 failures exactly the documented pre-existing set.
+
+**Not done, deliberately:** no change to the five-field schema, the reviewed question bank, the crisis
+shield, the consent/disclosure behaviour, the provider configuration, the database migration or RLS, or
+any Vercel setting; no card field added, removed or renamed; no metaphor invented or borrowed from
+another answer; the "Not answered yet" copy untouched; no provider call of any kind (the local run was
+mock mode - `.env.local` has no `MODEL_MODE`); no deployment.
+
+### 2. What was wrong, with the evidence
+
+- **(A) The helper never looked at the question.** `InterviewChat.tsx` rendered
+  `{SENSATION_VOCABULARY.map(...)}` inside its `<details>` block, and the block read no question.
+  `question.id` was in scope and unused, so Q1, Q4 and Q14 showed the same eight behaviour words. The
+  bank already carried the vocabulary each question names - it was there and simply unused.
+- **(B) The metaphor row needs a comparison, and the comparison question could not be answered by someone
+  with no words.** `intensity_metaphor` is filled by exactly two things (`cardFidelity.ts`, `ownFields`
+  lines 434-444): an answer stating a resemblance ("like ..."), or the comparison question's answer when
+  `isComparisonShaped` accepts it (three words minimum, no not-knowing word, no time word, at least one
+  quality word). The comparison question was asked; the person answered it with a tapped word list, which
+  the rule refuses **by design**. Nothing was dropped, and the fallback card was not involved - a fallback
+  card keeps the reviewed metaphor copy ("like a quiet background hum") and would have shown it.
+- **(C) The words of not knowing were shown as chosen vocabulary.** `NON_QUALITY_WORDS` holds `dont`
+  without the apostrophe; `FILLER_WORDS` holds neither `know` nor `describe`; and the tokenizer keeps
+  `don't` as one token, so all three survived the filter.
+
+A read-only probe through the real state machine (temporary file, deleted before this entry) reproduced
+the owner's card byte for byte on the model-draft path and showed the mock path adding "don't, know,
+describe" - which is how (C) was found. It also confirmed that all four of the bank's own comparison
+phrases already pass `isComparisonShaped`, so (B) needed no rule change.
+
+### 3. Files changed
+
+| file | change |
+|---|---|
+| `src/lib/vocabulary.ts` | `+117` - `VOCABULARY_BY_QUESTION` (one group per bank id, each from that question's own wording), `COMPARISON_PHRASES` (Q5's four, shared with Q14), `vocabularyFor(questionId)` with the general list as the fallback |
+| `src/components/InterviewChat.tsx` | `+101/-34` - the helper extracted into one `VocabularyHelper` component, rendered by the asking screen with `vocabularyFor(question.id)` and by the revision flow with `vocabularyFor(editing.id)`; nothing rendered when the group is empty |
+| `src/lib/cardFidelity.ts` | `+40` - `UNCERTAINTY_WORDS` (negations and not-knowing words, both spellings), one line in `isQualityWord`, one line in `groundedQualityWords` so the model-draft path is covered too |
+| `src/lib/vocabulary.test.ts` | `+162/-8` - the grouping decisions, the texture-only scan over every group, the comparison invariant, the end-to-end tapped comparison, and the updated source-level helper test |
+| `src/lib/cardFidelity.answers.test.ts` | `+53` - CF-36: the owner's sentence keeps its place verbatim while the uncertainty words leave `quality_words`, and the narrow cases keep their words |
+| `src/lib/cardFidelity.modelDraft.test.ts` | `+15` - a model's selection of "don't"/"know"/"describe" is discarded |
+| `docs/mvp/ISSUES-AND-BLOCKERS.md` | `+65` - the `ISS-23` row and section 6, with the evidence, the fix and the decisions |
+| `BUILD-REPORT.md` | this entry. **Note:** the file also carried an uncommitted insertion of Entries 51-53 from earlier sessions; it is documentation only and was committed with this entry rather than reverted or discarded |
+
+### 4. The change, before and after
+
+Before - every question:
+
+```tsx
+<SENSATION_VOCABULARY.map((candidate) => ( ... onClick={() => setText(addWordToAnswer(text, candidate.word))} ...
+```
+
+After - the question decides:
+
+```tsx
+<VocabularyHelper candidates={vocabularyFor(question.id)} value={text} onChange={setText} busy={busy} />
+```
+
+with `Q11`/`Q13` returning `[]` (no helper at all), an unknown id returning the general list, and the
+revision flow keyed to `revisionQuestion(draft).id` rather than to the question the interview stopped on.
+The person's answer is still the only place a word can enter: the component calls
+`onChange(addWordToAnswer(value, candidate.word))` and sends nothing.
+
+### 5. Evidence that nothing else moved
+
+- The five-field schema, the bank, the crisis shield and every copy string are untouched; `T3`, `T1`,
+  `T6` and `T5` pass unchanged (`T5` now scans 102 text files, including the new vocabulary copy, with
+  zero hits).
+- `cardFidelity`'s comparison rules are unchanged: the new test asserts the Q14 group's phrases pass
+  `isComparisonShaped`, and the existing refusals (`CF-22`...`CF-24`, correction 4's floor) still pass.
+- The uncertainty filter is a rejection list on the quality-word path only. It cannot add a word to a
+  card, and `user_own_sentence` is not touched: `CF-36` asserts the owner's sentence is quoted verbatim.
+- Mock mode is still mock: no `MODEL_MODE`, no key read, no network.
+
+### 6. Commands and results
+
+| command | exit | result |
+|---|---|---|
+| `npm run test:unit` | 0 | **493 tests / 115 suites, 493 pass, 0 fail** |
+| `npm test` | 0 | unit suite exit 0; red-team pack **8 PASS, 0 FAIL, 0 NOT IMPLEMENTED** (T5: 102 files, zero hits) |
+| `npx tsc --noEmit` | 0 | clean (one assertion-tuple typing error was found and fixed while writing the tests) |
+| `npm run lint` | 0 | 0 errors; the 2 warnings are the pre-existing unused variables in `tools/visual-harness/run.mjs` |
+| `npm run build` | 0 | 16/16 static pages, the same routes as before |
+| `node tools/visual-harness/run.mjs` | 1 | **185 gates passed, 43 failed of 228**; all 43 are the documented pre-existing set - `T1.zone44` 10, `T2.control44` 10 (`ISS-13`), `D1.firstScreen` 7, `D2.scrolling` 7, `D3.focus` 3 (`ISS-07`), `S4.side` 4, `N1.figure` 1, `N2.views` 1 (`ISS-09`) - the same gates and the same counts as before this change. The journey gates that cover this work all PASS: `J1.card`, `J3.fields`, `J2.region`, `P1.line`, `P4.disclosure`, `P5.acknowledged`, `P6.declined`, `P3.console` (0 browser errors) |
+
+### 7. What was not done
+
+No provider call, no `.env.local` edit, no database or Storage access, no migration or RLS change, no
+Vercel change, no dependency, no destructive git command. The two scratch text files and the untracked
+`src/lib/journalSchema.test.ts` in the working tree were left exactly as they were, as was the modified
+`supabase/migrations/001_init.sql` - none of them is part of this commit.
+
+### 8. Warnings and unresolved
+
+1. **The harness has no gate for the helper.** No gate ever measured the vocabulary list, and none was
+   added (the owner's brief asked for the harness to be *run*, not extended). The per-question contents
+   are proven by unit tests and by the source-level test; a gate that opens the disclosure on each
+   question and reads the rendered candidates would close that gap.
+2. **"Not answered yet" is unchanged, by decision.** A card whose comparison question went unanswered
+   still says so. If the owner later wants different wording for a finished card, it is one line in
+   `src/lib/copy.ts` and it affects all four rows.
+3. **An adjacent filter gap, reported not fixed.** Contracted function words ("it's", "i'm", "i've",
+   "that's") still pass the quality filter - the same class as the plain forms already in
+   `NON_QUALITY_WORDS` ("its", "it", "i"). The change was kept to the uncertainty words the owner
+   approved; adding those forms is a one-line decision.
+4. **The `ISSUES-AND-BLOCKERS.md` summary table stops at `ISS-13`** while the code references up to
+   `ISS-22`, so the next free id repo-wide is `ISS-23`. The new issue was recorded as section 6 of that
+   file.
+5. **`BUILD-REPORT.md` also carried uncommitted Entries 51-53** (documentation only, from earlier
+   sessions). They were committed with this entry rather than reverted; no code of theirs was touched.
+
+### 9. Next step
+
+The Preview on the release-candidate branch carries this change. The two things worth the owner's eye in
+a manual session: on the first question the helper should offer "in one spot" / "spreading out", and on
+the third it should offer "a tight knot" / "a warm bath" / "a heavy blanket" / "a buzzing phone" - tapping
+one of those should fill the card's `It feels like` row with that phrase verbatim, while a session that
+answers without a comparison still shows "Not answered yet".
+

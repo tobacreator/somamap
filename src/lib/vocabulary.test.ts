@@ -4,6 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { isComparisonShaped } from "./cardFidelity.ts";
+import { cardViewForPayload } from "./cardView.ts";
 import {
   DISCLAIMER_LINE,
   INTERVIEW_COMPLETING,
@@ -14,7 +16,14 @@ import {
 import { afterResponse } from "./interviewFlow.ts";
 import { interviewStep } from "./interview.ts";
 import { mockAdapter } from "./models.ts";
-import { SENSATION_VOCABULARY, addWordToAnswer, answerHasWord } from "./vocabulary.ts";
+import { questionIds } from "./questionBank.ts";
+import {
+  SENSATION_VOCABULARY,
+  VOCABULARY_BY_QUESTION,
+  addWordToAnswer,
+  answerHasWord,
+  vocabularyFor,
+} from "./vocabulary.ts";
 
 /**
  * Vocabulary discovery (`ISS-22`).
@@ -113,6 +122,142 @@ describe("adding a candidate word to the answer", () => {
   it("matches the word as a whole word", () => {
     assert.equal(answerHasWord("it feels unsteady", "steady"), false);
     assert.equal(addWordToAnswer("it feels unsteady", "steady"), "it feels unsteady, steady");
+  });
+});
+
+/** The rendered row for one field, as the card screen shows it. */
+function rowFor(card: unknown, field: string) {
+  return cardViewForPayload(card).rows.find((row) => row.field === field);
+}
+
+describe("the vocabulary each question offers", () => {
+  it("decides a group for every question the bank ships, and none for the two only the person can answer", () => {
+    for (const id of questionIds()) {
+      assert.ok(id in VOCABULARY_BY_QUESTION, `${id} must have a vocabulary decision`);
+    }
+
+    assert.deepEqual(vocabularyFor("Q11"), [], "the question asks for the person's own word, so none is offered");
+    assert.deepEqual(vocabularyFor("Q13"), [], "the question asks for their own number, and a number is not vocabulary");
+  });
+
+  it("falls back to the general list for an unknown, empty or absent question id", () => {
+    assert.deepEqual(vocabularyFor("Q99"), SENSATION_VOCABULARY);
+    assert.deepEqual(vocabularyFor(""), SENSATION_VOCABULARY);
+    assert.deepEqual(vocabularyFor(null), SENSATION_VOCABULARY);
+    assert.deepEqual(vocabularyFor(undefined), SENSATION_VOCABULARY);
+  });
+
+  it("offers the words of the question being asked, not one list for every question", () => {
+    // The defect this replaces: the same eight words appeared whatever was asked, so the helper said
+    // nothing about the question in front of the person.
+    assert.deepEqual(
+      vocabularyFor("Q1").map((candidate) => candidate.word),
+      ["in one spot", "spreading out"],
+    );
+    assert.deepEqual(
+      vocabularyFor("Q4").map((candidate) => candidate.word),
+      ["smooth", "rough", "tight", "loose"],
+    );
+
+    const sequence = ["Q1", "Q4", "Q14"].map((id) =>
+      vocabularyFor(id)
+        .map((candidate) => candidate.word)
+        .join("|"),
+    );
+
+    assert.equal(new Set(sequence).size, sequence.length, "the three questions a session asks offer three lists");
+  });
+
+  it("describes texture only in every group: no cause, condition, action or rule-5 word", () => {
+    for (const [id, group] of Object.entries(VOCABULARY_BY_QUESTION)) {
+      for (const candidate of group ?? []) {
+        const text = `${candidate.word} ${candidate.meaning}`.toLowerCase();
+
+        assert.ok(candidate.word.length > 2, `${id}: ${candidate.word}`);
+        assert.ok(candidate.meaning.length > 10, `${id}: ${candidate.word} needs a real explanation`);
+
+        for (const forbidden of NEVER) {
+          assert.equal(text.includes(forbidden), false, `${id}: ${candidate.word}: "${forbidden}" must not appear`);
+        }
+      }
+    }
+  });
+
+  it("keeps every group short enough to read at a glance", () => {
+    // `Q9` offers the general list itself, so the bound is that list's own length - the cap the brief's
+    // eight words already set.
+    for (const [id, group] of Object.entries(VOCABULARY_BY_QUESTION)) {
+      assert.ok((group ?? []).length <= SENSATION_VOCABULARY.length, `${id} offers no more than the general list`);
+    }
+  });
+
+  it("offers, on the comparison question, only phrases the metaphor row accepts", () => {
+    assert.deepEqual(vocabularyFor("Q14"), vocabularyFor("Q5"), "the bank's own four comparison phrases");
+
+    for (const candidate of vocabularyFor("Q14")) {
+      assert.equal(isComparisonShaped(candidate.word), true, `${candidate.word} must be comparison-shaped`);
+    }
+  });
+});
+
+describe("a tapped suggestion reaches the card as the person's own words", () => {
+  const DEPS = { adapter: mockAdapter, logger: () => {}, mode: "mock" as const };
+
+  /**
+   * The owner's own session: two answers carrying words, then the comparison question answered with a
+   * suggestion the person tapped - and a description that says they have no words for it at all.
+   */
+  const NO_WORDS = "I feel something, but I don't know how to describe it.";
+
+  /** A finished session whose third answer is whatever the person's comparison ended up being. */
+  async function cardFor(comparisonAnswer: string) {
+    const result = await interviewStep(
+      {
+        answers: [
+          { questionId: "Q1", text: "in one spot" },
+          { questionId: "Q4", text: "tight, fluttering" },
+        ],
+        text: comparisonAnswer,
+        regionLabel: "chest",
+        description: NO_WORDS,
+        acknowledgedProvider: "local",
+      },
+      DEPS,
+    );
+
+    assert.equal(result.status, "complete");
+
+    return result.status === "complete" ? result.card : null;
+  }
+
+  it("fills the metaphor row with the tapped comparison, quoted whole", async () => {
+    const tapped = vocabularyFor("Q14")[0].word;
+    const card = await cardFor(tapped);
+
+    assert.ok(card !== null);
+    assert.equal(card.intensity_metaphor, tapped, "the person's own words, through the existing pipeline");
+    assert.equal(rowFor(card, "intensity_metaphor")?.answered, true, 'the row is answered, not "Not answered yet"');
+    assert.deepEqual(
+      Object.keys(card).sort(),
+      ["duration", "intensity_metaphor", "location_label", "quality_words", "user_own_sentence"],
+      "still exactly five fields",
+    );
+  });
+
+  it("keeps the words the person chose and drops the words of not knowing", async () => {
+    const card = await cardFor(vocabularyFor("Q14")[0].word);
+
+    assert.ok(card !== null);
+    assert.deepEqual(card.quality_words, ["tight", "fluttering"], "the words they chose, and nothing else");
+    assert.equal(card.user_own_sentence, NO_WORDS, "their sentence is still quoted verbatim");
+  });
+
+  it("leaves the row honestly unanswered when the comparison question got no comparison", async () => {
+    const card = await cardFor("tingling, fluttering");
+
+    assert.ok(card !== null);
+    assert.equal(card.intensity_metaphor, "", "nothing is invented to fill the row");
+    assert.equal(rowFor(card, "intensity_metaphor")?.display, "Not answered yet");
   });
 });
 
@@ -227,14 +372,23 @@ describe("the interview's states stay honest", () => {
     assert.equal([...chat.matchAll(/postJournalCard\(card, view\)/g)].length, 1, "one write site, once per card");
   });
 
-  it("adds a suggested word without sending anything anywhere", () => {
+  it("adds a suggested word without sending anything anywhere, for the question being asked", () => {
     const chat = source("src/components/InterviewChat.tsx");
-    const helper = chat.slice(chat.indexOf("<details"), chat.indexOf("</details>"));
+    const helper = chat.slice(chat.indexOf("function VocabularyHelper"), chat.indexOf("</details>"));
 
     assert.ok(helper.length > 0, "the helper is rendered");
-    assert.ok(helper.includes("addWordToAnswer(text, candidate.word)"));
+    assert.ok(helper.includes("onChange(addWordToAnswer(value, candidate.word))"), "a tap edits the answer text");
     assert.equal(helper.includes("fetch("), false, "the helper edits the answer; it sends nothing");
     assert.ok(helper.includes("disabled={busy}"), "and it cannot be used mid-turn");
+    assert.ok(
+      helper.includes("if (candidates.length === 0) return null;"),
+      "a question with no vocabulary group renders no helper at all",
+    );
+
+    assert.equal([...chat.matchAll(/<VocabularyHelper/g)].length, 2, "the interview and the revision both offer it");
+    assert.ok(chat.includes("candidates={vocabularyFor(question.id)}"), "the asking screen uses the question it was sent");
+    assert.ok(chat.includes("candidates={vocabularyFor(editing.id)}"), "the revision uses the revision's own question");
+    assert.ok(chat.includes("value={revisionAnswer(draft)}"), "and edits that revision's answer, not the interview's");
   });
 
   it("keeps the helper's promise visible: suggestions, and nothing added unless tapped", () => {

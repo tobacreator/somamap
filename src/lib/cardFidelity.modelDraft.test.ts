@@ -196,6 +196,21 @@ describe("quality words are grounded in the user's own vocabulary", () => {
       assert.equal(card.quality_words.includes(invented), false);
     }
   });
+
+  it("discards a word of not knowing even though the user typed it", async () => {
+    // `ISS-23`: the words of "I don't know how to describe it" are the user's own words, but they are not
+    // words that describe how something felt - so a model selecting them is discarded here exactly as the
+    // session's own words are, and the row falls back to the words the user really did choose.
+    const session: FidelitySource = {
+      answers: [{ questionId: "Q4", text: "tingling" }],
+      regionLabel: "chest",
+      description: "I feel something, but I don't know how to describe it.",
+    };
+    const { card } = await cardFrom({ ...INVENTED, quality_words: ["don't", "know", "describe", "tingling"] }, session);
+
+    assert.deepEqual(card.quality_words, ["tingling"], "a word about not knowing is not vocabulary");
+    assert.equal(card.user_own_sentence, session.description);
+  });
 });
 
 describe("a comparison must be the user's own, verbatim and comparison-shaped", () => {

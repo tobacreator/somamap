@@ -105,6 +105,34 @@ const NON_QUALITY_WORDS = new Set([
 ]);
 
 /**
+ * Words that state not knowing, and the negations they are built from (`ISS-23`).
+ *
+ * The owner's own sentence is why this list exists: "I feel something, but I don't know how to describe
+ * it." Every word of it that survived the filters above was shown under "Words you chose", so a person
+ * saying they had no words for the sensation was presented with "don't", "know" and "describe" as
+ * vocabulary they had chosen. Their sentence is not touched - `user_own_sentence` still quotes it
+ * verbatim - and only those words leave the vocabulary row.
+ *
+ * Every entry is a word that cannot describe how a sensation behaves: a negation ("don't", "won't"), or
+ * a word about the person's own knowing or wording ("know", "describe", "guess", "sure", "maybe"). The
+ * filter therefore still removes filler rather than a quality: "tingling", "fluttering", "pressure" and
+ * "warmth" are untouched, and a description standing beside an uncertainty word ("I don't know, a heavy
+ * band") keeps its own words.
+ *
+ * Both spellings are listed because the text is the user's own: "don't" and "dont" are different tokens
+ * to the tokenizer, and a person may write either.
+ */
+const UNCERTAINTY_WORDS = new Set([
+  "dont", "don't", "doesnt", "doesn't", "didnt", "didn't", "isnt", "isn't", "wasnt", "wasn't",
+  "arent", "aren't", "werent", "weren't", "cant", "can't", "cannot", "wont", "won't",
+  "wouldnt", "wouldn't", "shouldnt", "shouldn't", "couldnt", "couldn't", "havent", "haven't",
+  "hasnt", "hasn't", "hadnt", "hadn't",
+  "know", "knows", "knew", "known", "knowing", "unsure", "sure", "maybe", "perhaps",
+  "guess", "guesses", "guessed", "guessing", "describe", "describes", "described", "describing",
+  "description", "explain", "explains", "explained", "explaining",
+]);
+
+/**
  * Time expressions that mark a phrase as the user's own answer to "how long". They only *locate* the
  * user's phrase; the phrase itself is copied verbatim, so no duration is ever invented.
  *
@@ -288,12 +316,17 @@ export function answersWithWords(source: FidelitySource): readonly string[] {
  * `TIME_WORDS` list decides, so "morning", "yesterday" and "week" can no longer appear under "Words
  * you chose" merely because they were typed. Only the time word itself is removed - a descriptive word
  * standing next to it ("a heavy band all week" keeps "heavy" and "band") is not.
+ *
+ * Words that state not knowing are excluded for the same reason (`ISS-23`): "I don't know how to
+ * describe it" is a statement about having no words, so its words are not words the person chose. Only
+ * the uncertainty words are removed, and their sentence is still quoted verbatim under "In your words".
  */
 function isQualityWord(lower: string): boolean {
   if (lower.length < 3) return false;
   if (NON_QUALITY_WORDS.has(lower)) return false;
   if (FILLER_WORDS.has(lower)) return false;
   if (SINGLE_TIME_WORDS.has(lower)) return false;
+  if (UNCERTAINTY_WORDS.has(lower)) return false;
 
   return true;
 }
@@ -672,6 +705,12 @@ export function userVocabulary(source: FidelitySource): Set<string> {
  * word is shown once. When nothing the model supplied is the user's, the session's own words stand in
  * (`qualityWordsFrom`), because a card is never emptier than the session that produced it; either
  * way, **every word in the row is a word the user typed**.
+ *
+ * A word must also pass the quality filter itself (`ISS-23`): the words of "I don't know how to describe
+ * it" are the user's own words, but they are not words that describe how something felt, so a model's
+ * selection of them is discarded here exactly as the session's own words are. The model's freedom is
+ * unchanged - it still selects and orders the user's quality words - and the row still falls back to the
+ * session's own words when the whole selection is discarded.
  */
 function groundedQualityWords(words: readonly string[], source: FidelitySource, own: OwnFields): string[] {
   const vocabulary = userVocabulary(source);
@@ -682,6 +721,7 @@ function groundedQualityWords(words: readonly string[], source: FidelitySource, 
     const lower = trimmed.toLowerCase();
 
     if (trimmed.length === 0 || !vocabulary.has(lower)) continue;
+    if (!isQualityWord(lower)) continue;
     if (kept.some((already) => already.toLowerCase() === lower)) continue;
     if (kept.length === 5) continue;
 

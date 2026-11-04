@@ -72,7 +72,7 @@ import { savedCardFromPayload } from "@/lib/journal";
 import { saveIntentFor } from "@/lib/journalSave";
 import type { BodyView } from "@/lib/regions";
 import type { SensationCard } from "@/lib/schema";
-import { SENSATION_VOCABULARY, addWordToAnswer } from "@/lib/vocabulary";
+import { addWordToAnswer, vocabularyFor, type VocabularyCandidate } from "@/lib/vocabulary";
 
 /**
  * The interview screen - blueprint Chapter 5.3 (the Day-4 prompt) and gate G4.
@@ -177,6 +177,60 @@ async function postJournalCard(card: SensationCard, view: BodyView): Promise<{ o
 
 /** The session a completed card was worded from - what a revision starts from. */
 export type InterviewSession = { asked: readonly FlowQuestion[]; answers: readonly FlowAnswer[] };
+
+/**
+ * The words a person can borrow when they have none (`ISS-22`), for the question in front of them
+ * (`ISS-23`).
+ *
+ * The list is the question's own: `vocabularyFor` reads the id the route sent with it, so the words on
+ * screen belong to the question being asked rather than to the product in general. A question whose
+ * group is deliberately empty (`Q11`, `Q13`) renders **nothing** - not an empty disclosure - because
+ * those questions ask for something only the person can supply. A suggestion reaches the answer only
+ * when they tap it, which is what makes it theirs; the note says so, and the field stays theirs to edit
+ * either way. Native `details`, so it costs no state and works without script.
+ */
+function VocabularyHelper({
+  candidates,
+  value,
+  onChange,
+  busy,
+}: {
+  candidates: readonly VocabularyCandidate[];
+  value: string;
+  onChange: (answer: string) => void;
+  busy: boolean;
+}) {
+  if (candidates.length === 0) return null;
+
+  return (
+    <details className="text-label text-ink-muted">
+      <summary className="cursor-pointer text-label font-medium text-accent-text">
+        {INTERVIEW_VOCABULARY_SUMMARY}
+      </summary>
+
+      <div className="flex flex-col gap-2 pt-2">
+        <p className="text-meta leading-5 text-ink-muted">{INTERVIEW_VOCABULARY_NOTE}</p>
+
+        <ul className="flex flex-col gap-1">
+          {candidates.map((candidate) => (
+            <li key={candidate.word}>
+              <button
+                type="button"
+                disabled={busy}
+                aria-label={INTERVIEW_VOCABULARY_WORD_LABEL(candidate.word)}
+                onClick={() => onChange(addWordToAnswer(value, candidate.word))}
+                className={`flex min-h-11 w-full flex-col items-start rounded-control border border-hairline px-3 py-2 text-left hover:bg-tint disabled:text-ink-muted ${FOCUS_RING}`}
+              >
+                <span className="text-label font-medium text-ink">{candidate.word}</span>
+                <span className="text-meta text-ink-muted">{candidate.meaning}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </details>
+  );
+}
 
 type InterviewChatProps = {
   /**
@@ -525,6 +579,17 @@ export default function InterviewChat({
               disabled={busy}
             />
 
+            {/* The same helper the interview offers, for the question this revision is showing
+                (`ISS-23`). The group comes from the revision's own question id - never from the
+                question the interview happened to stop on - and a tap edits the draft's answer, so
+                nothing is sent until "Save changes". */}
+            <VocabularyHelper
+              candidates={vocabularyFor(editing.id)}
+              value={revisionAnswer(draft)}
+              onChange={(value) => setDraft(revisionWithAnswer(draft, value))}
+              busy={busy}
+            />
+
             {/* The two ways between the questions the session asked. The first and last are ends, so
                 the button that would leave the interview is disabled rather than hidden - a control
                 that disappears moves everything else under the user's finger. */}
@@ -733,35 +798,11 @@ export default function InterviewChat({
           hint={busy || readyToSend ? undefined : INTERVIEW_ANSWER_HINT}
         />
 
-        {/* The words a person can borrow when they have none (`ISS-22`). A suggestion reaches the answer
-            only when they tap it, which is what makes it theirs; the note says so, and the field stays
-            theirs to edit either way. Native `details`, so it costs no state and works without script. */}
-        <details className="text-label text-ink-muted">
-          <summary className="cursor-pointer text-label font-medium text-accent-text">
-            {INTERVIEW_VOCABULARY_SUMMARY}
-          </summary>
-
-          <div className="flex flex-col gap-2 pt-2">
-            <p className="text-meta leading-5 text-ink-muted">{INTERVIEW_VOCABULARY_NOTE}</p>
-
-            <ul className="flex flex-col gap-1">
-              {SENSATION_VOCABULARY.map((candidate) => (
-                <li key={candidate.word}>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    aria-label={INTERVIEW_VOCABULARY_WORD_LABEL(candidate.word)}
-                    onClick={() => setText(addWordToAnswer(text, candidate.word))}
-                    className={`flex min-h-11 w-full flex-col items-start rounded-control border border-hairline px-3 py-2 text-left hover:bg-tint disabled:text-ink-muted ${FOCUS_RING}`}
-                  >
-                    <span className="text-label font-medium text-ink">{candidate.word}</span>
-                    <span className="text-meta text-ink-muted">{candidate.meaning}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </details>
+        {/* The words a person can borrow when they have none (`ISS-22`), chosen for the question being
+            asked (`ISS-23`): the group comes from the id the route sent with it, and a question with no
+            group renders nothing at all. A suggestion reaches the answer only when they tap it, which is
+            what makes it theirs; the note says so, and the field stays theirs to edit either way. */}
+        <VocabularyHelper candidates={vocabularyFor(question.id)} value={text} onChange={setText} busy={busy} />
 
         <Button id="interview-submit" type="submit" disabled={!readyToSend} className="self-start">
           {INTERVIEW_ANSWER_SUBMIT}

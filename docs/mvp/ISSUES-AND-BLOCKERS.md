@@ -32,6 +32,7 @@ owner can decide in one pass.
 | `ISS-11` | P3 | The question bank's count is twelve in prose and thirteen in the table | Nothing | Open, decision needed |
 | `ISS-12` | P3 | Deleting `.next` while a dev server runs stops that server | Nothing | Documented, avoid |
 | `ISS-13` | **P1** | No zone can be 44x44 px on a phone: the neck is 7.6% of the figure's width | Touch-target criterion | **OPEN — proven impossible.** See §4 |
+| `ISS-23` | **P1** | The vocabulary helper showed one list on every question, and the words of "I don't know" were shown as chosen vocabulary | Card credibility, and whether the helper helps at all | **RESOLVED 2026-11-04** — the group follows the question; the comparison question offers the bank's own phrases; the words of not knowing leave `quality_words` |
 
 ---
 
@@ -366,4 +367,68 @@ renders at 320px so the neck reaches 24.3px, meeting WCAG 2.2 AA.
 44); (b) change the gate's threshold to a justified standard, which the mission forbids doing merely to
 pass; (c) accept and document, as now. **Nothing was changed**, and `T1.zone44`/`T2.control44` remain
 red at 10/10 viewports as honest evidence.
+
+---
+
+## 6. `ISS-23` — the helper showed one list on every question, and the words of not knowing were shown as vocabulary (P1, fixed 2026-11-04)
+
+**Reported by the owner** after a manual session on the protected Preview, with the finished card pasted
+back:
+
+> Where: head · Words you chose: tingling, fluttering · It feels like: **Not answered yet** · In your
+> words: "I feel something, but I don't know how to describe it."
+
+Three defects were visible in that one card, and the third was found while reproducing it.
+
+- **Evidence (A) — one list for every question.** The helper rendered `SENSATION_VOCABULARY`
+  unconditionally: `src/components/InterviewChat.tsx` had `{SENSATION_VOCABULARY.map(...)}` inside the
+  `<details>` block, and the block never read the question. `question.id` was in scope and unused, so
+  Q1 ("Does it stay in one spot, or does it spread out?"), Q4 (the four textures) and Q14 ("What does it
+  remind you of?") all showed the same eight behaviour words. The reviewed bank already carries the
+  vocabulary each question names — it was there all along and simply was not being used.
+- **Evidence (B) — why the row was empty.** `intensity_metaphor` is filled by exactly two things
+  (`src/lib/cardFidelity.ts`, `ownFields` lines 434–444): an answer that states a resemblance
+  ("like …"), or the **comparison question's** answer when `isComparisonShaped` accepts it. The
+  comparison question *was* asked — it is the session's third question — and the person answered it with
+  a tapped word list, which the comparison rule refuses **by design** (correction 4's three-word floor,
+  and the not-knowing words). So the row was empty and the card rendered "Not answered yet". **Nothing
+  was dropped and the fallback card was not involved**: a fallback card keeps the reviewed metaphor copy
+  ("like a quiet background hum") and would have shown it. A read-only probe through the real state
+  machine reproduced the owner's card byte for byte on the model-draft path, and showed that the mock
+  path would have added "don't, know, describe" to "Words you chose" — which is how defect (C) was
+  found.
+- **Evidence (C) — the words of not knowing shown as vocabulary.** `NON_QUALITY_WORDS` holds `dont`
+  without the apostrophe and `FILLER_WORDS` holds neither `know` nor `describe`, so the words of "I feel
+  something, but I don't know how to describe it" reached the row labelled **"Words you chose"**. The
+  words are the person's own, but they describe no quality of anything, and the row read as the product
+  attributing vocabulary to someone who had just said they had none.
+- **Impact.** The helper answered "what words exist" rather than "what words fit this question", and the
+  person it exists for — someone with no words — could not answer the comparison question at all, so the
+  row the feature was built to fill stayed empty. In the demo the card is the product's output, and one
+  of its five rows read "Not answered yet" for the exact user the feature is for.
+- **What must NOT be done.** No metaphor may be invented or borrowed from another answer; the five-field
+  schema, the reviewed bank, the comparison rule and the crisis shield are untouched; the person's
+  sentence stays quoted verbatim; no question is written.
+- **Fix.** The list is chosen by the question id the route sent (`VOCABULARY_BY_QUESTION` /
+  `vocabularyFor` in `src/lib/vocabulary.ts`), and each group is the question's **own approved wording**
+  — "in one spot"/"spreading out" for Q1, the four textures for Q4, "a coin"/"a palm"/"wider" for Q7,
+  and so on. The comparison question (Q14) offers the bank's four comparison phrases from Q5, each of
+  which already satisfies `isComparisonShaped`, so a tap fills `intensity_metaphor` through the
+  **existing** pipeline with the person's own words. `Q11` and `Q13` offer nothing, because they ask for
+  the person's own word and their own number; an unknown or absent id falls back to the general list;
+  and a question with no group renders no helper rather than an empty one. The same helper is offered in
+  the revision flow, keyed to `revisionQuestion(draft).id`. Separately, the uncertainty words
+  (`UNCERTAINTY_WORDS`) no longer reach `quality_words` on either path — the session's own words or a
+  model's selection — while the sentence keeps its place verbatim.
+- **Decision.** Approved by the owner 2026-11-04: the grouping table (including "no suggestions" on Q11
+  and Q13); hiding the helper where the group is empty; the narrow uncertainty filter; the revision
+  helper; and leaving the "Not answered yet" copy unchanged for now.
+- **Evidence.** `npm run test:unit` — **493/493 pass**; `npm test` — unit suite exit 0 and the red-team
+  pack **8 PASS, 0 FAIL, 0 NOT IMPLEMENTED** (T5 copy scan reads 102 text files with zero hits; T6 still
+  diffs the bank against Table 11 plus the one approved addition); `npx tsc --noEmit` and `npm run lint`
+  (0 errors) and `npm run build` all green; the harness journey gates (`J1.card`, `J3.fields`,
+  `J2.region`, `P1.line`, `P4.disclosure`, `P5.acknowledged`, `P6.declined`, `P3.console`) PASS, and its
+  43 remaining failures are exactly the documented pre-existing set — `T1.zone44`/`T2.control44`
+  (`ISS-13`), `D1.firstScreen`/`D2.scrolling`/`D3.focus` (`ISS-07`), `S4.side`/`N1.figure`/`N2.views`
+  (`ISS-09`) — with the same counts as before this change.
 

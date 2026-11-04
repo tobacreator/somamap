@@ -711,3 +711,56 @@ describe("CF-35: the duration row holds the expression, not the sentence around 
   });
 });
 
+describe("CF-36 (ISS-23): the words of not knowing are not shown as chosen vocabulary", () => {
+  /**
+   * The owner's own sentence, reported from a manual session: the card showed "don't", "know" and
+   * "describe" under "Words you chose", because a person saying they had no words for the sensation had
+   * their sentence read as vocabulary. The words are theirs, but they describe no quality of anything.
+   *
+   * The rule is a rejection list: it can only ever leave a word out of the row, never put one in, and
+   * the sentence itself is untouched - `user_own_sentence` still quotes it verbatim, which is what the
+   * card exists to keep.
+   */
+  const NO_WORDS = "I feel something, but I don't know how to describe it.";
+
+  it("keeps the sentence verbatim and leaves the uncertainty words out of quality_words", () => {
+    const card = mockCardFrom({
+      answers: [{ questionId: "Q4", text: "tingling, fluttering" }],
+      regionLabel: "chest",
+      description: NO_WORDS,
+    });
+
+    assert.deepEqual(card.quality_words, ["tingling", "fluttering"]);
+    assert.equal(card.user_own_sentence, NO_WORDS, "their sentence, quoted whole");
+    assert.deepEqual(Object.keys(card).sort(), [
+      "duration",
+      "intensity_metaphor",
+      "location_label",
+      "quality_words",
+      "user_own_sentence",
+    ]);
+  });
+
+  it("leaves the row honestly empty when the session holds nothing but not knowing", () => {
+    const card = mockCardFrom({ answers: [{ questionId: "Q4", text: NO_WORDS }], regionLabel: "chest" });
+
+    assert.deepEqual(card.quality_words, []);
+    assert.equal(rowFor(card, "quality_words")?.display, "Not answered yet");
+    assert.equal(card.user_own_sentence, NO_WORDS);
+  });
+
+  it("keeps the words a person chose even when they also say they do not know", () => {
+    // The rejection list is narrow: a description standing beside an uncertainty word keeps its place.
+    for (const [answer, expected] of [
+      ["I don't know, a heavy band", ["heavy", "band"]],
+      ["Maybe tight, maybe loose", ["tight", "loose"]],
+      ["I can't describe it - a dull ache", ["dull", "ache"]],
+    ] as const) {
+      const card = mockCardFrom({ answers: [{ questionId: "Q1", text: answer }], regionLabel: "chest" });
+
+      assert.deepEqual(card.quality_words, expected, `${JSON.stringify(answer)} keeps its own words`);
+      assert.equal(card.user_own_sentence, answer);
+    }
+  });
+});
+
