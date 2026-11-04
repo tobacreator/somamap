@@ -35,42 +35,17 @@ export function localConfig(): SupabaseTarget | null {
 
 export type Session = { userId: string; accessToken: string };
 
-export type SignInResult =
-  | { ok: true; session: Session; expiresInSeconds: number }
-  | { ok: false; reason: "rejected" | "unavailable" };
-
 /**
- * Signs in with email and password against the local Auth API. A rejection and an
- * unreachable service are reported as different categories, and neither echoes the
- * credential back.
+ * The sign-in call and its categories live in `authSignIn.ts`, which imports nothing from Next.js.
+ *
+ * They are re-exported here so that every caller keeps importing them from the module it always did, and so
+ * that the one thing this file is for - the cookie the session becomes - stays in one place. The call itself
+ * had to move to be testable at all: this module reads cookies through `next/headers`, which a plain test
+ * cannot load.
  */
-export async function signInWithPassword(
-  config: SupabaseTarget,
-  email: string,
-  password: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<SignInResult> {
-  try {
-    const response = await fetchImpl(`${config.baseUrl}/auth/v1/token?grant_type=password`, {
-      method: "POST",
-      headers: { apikey: config.anonKey, "content-type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
+export { signInWithPassword } from "./authSignIn.ts";
+export type { SignInRefusal, SignInResult } from "./authSignIn.ts";
 
-    if (response.status !== 200) return { ok: false, reason: "rejected" };
-
-    const body = (await response.json()) as { access_token?: unknown; user?: { id?: unknown } };
-    const accessToken = body.access_token;
-    const userId = body.user?.id;
-
-    if (typeof accessToken !== "string" || accessToken.length === 0) return { ok: false, reason: "unavailable" };
-    if (typeof userId !== "string" || userId.length === 0) return { ok: false, reason: "unavailable" };
-
-    return { ok: true, session: { userId, accessToken }, expiresInSeconds: 60 * 60 };
-  } catch {
-    return { ok: false, reason: "unavailable" };
-  }
-}
 
 /**
  * The signed-in session, verified. The cookie's token is checked against the Auth API and

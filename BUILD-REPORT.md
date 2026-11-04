@@ -13373,6 +13373,62 @@ configured, and it proves the route resolves its target and refuses before any r
 **The one step that remains, and it is the owner's:** open the recovery link, choose a new password on the
 screen that now appears, and sign in with it.
 
+---
+
+## Entry 65 - 2026-11-05 00:00 (+01:00) - A sign-in that fails because of *this deployment* now says so, instead of looking like a person typing the wrong password (new work, tests, no configuration touched)
+
+**The incident.** Two deployments of this project behaved differently with the same account: an older one
+accepted the credentials and showed the existing cards and journals, the current production one refused them.
+The screen said "That sign-in did not work." and **nothing anywhere said why** - not the UI, not the server
+logs, not the deployment's own output. Hours went into comparing deployments by hand.
+
+**What the investigation established.**
+
+- **The code is not the difference.** `SignInForm.tsx`, `api/auth/sign-in/route.ts`, `authSession.ts` and
+  `supabaseTarget.ts` were last changed at `c62609d` (2026-11-04 00:26), and **no commit between `c62609d`
+  and `HEAD` touched any of them**. Both deployments are at or after that commit, so both run the same
+  sign-in implementation as this repository.
+- **The deployments serve the same code.** Their public pages are byte-identical (`/` 23,135 bytes,
+  `/journal` 17,879 bytes, `/reset-password` 10,255 bytes), while the older deployment is missing
+  `/reset-password` (404) and still carries the previous hero copy.
+- **So the difference is deployment configuration**, and the only auth-relevant configuration is the
+  Supabase pair. `NEXT_PUBLIC_*` values are captured **when a deployment is built**, so correcting one in the
+  dashboard does not change a deployment that already exists - which is exactly how a deployment can look
+  correct in the settings page and still refuse every sign-in. The publishable key is the prime suspect: the
+  URL was checked by hand, the key was not, and a key belonging to another project against a correct URL is
+  accepted by this app's resolver (it only refuses *local demo* keys) and then refused by the account service.
+- **It is not the account.** It exists, is confirmed and is not banned, and it works on the older deployment
+  today.
+
+**What was changed, and why it is safe.**
+
+| change | reason |
+|---|---|
+| `src/lib/authSignIn.ts` (new) | the sign-in call moved out of `authSession.ts`, exactly as `authSignUp.ts` already lives apart from it: that module reads cookies through `next/headers`, so a plain test cannot load it, and this call had **no tests at all** - the one call that fails in production. `authSession.ts` re-exports it, so no caller changed. |
+| `SignInRefusal` categories | a key the account service refuses (`invalid_api_key`) is now `invalid-key`, a rate limit is `rate-limited`, a broken service is `unavailable`. Every credential-shaped refusal stays one undifferentiated `rejected`, so the union still cannot tell a caller whether an address exists. |
+| `src/app/api/auth/sign-in/route.ts` | one content-free line, in the shape the model boundary already uses, for the categories that are the operator's to fix: a refused configuration (with its reason category) and a provider-side refusal. An ordinary wrong password still writes nothing, so a public endpoint cannot be used to fill a log. |
+| `src/lib/authSignIn.test.ts` (new) | 20 assertions over the call that had none: the request it builds, every category, a non-JSON body, a transport failure, and that the result carries **no** address, password, token or service message. |
+| `src/lib/authJourney.test.ts` | three source assertions holding the properties still: the two records exist, the line is content-free, and the answer to a caller is unchanged. |
+
+**The response to a caller is byte-for-byte what it was** (`401 {"error":"sign-in failed"}`), no user
+information is recorded, and no credential, key, token or service message is ever logged.
+
+**Gates.** `tsc --noEmit` exit **0**; `lint` **0 errors** (2 pre-existing harness warnings); `npm test`
+**red team 8/8 PASS, exit 0** plus the unit suite; `npm run build` **success, 18 routes**. The two touched
+test files run **27 assertions with 0 failures**. Verified end to end locally: a sign-in against this
+workspace (which has no account service configured) answers `500 {"error":"not configured","reason":
+"missing-configuration"}` as before, and now writes exactly one line -
+`SomaMap sign-in: {"event":"configuration-refused","reason":"missing-configuration"}` - which is the sentence
+that would have ended this incident in minutes.
+
+**What could not be done from here, and the one action it leaves.** This workspace has **no Vercel and no
+Supabase access**: no `VERCEL_TOKEN`, no `.vercel` project link, the Vercel CLI reports `No existing
+credentials found`, and there is no Supabase token. So the environment values of either deployment were
+**not** inspected, and nothing was changed in Vercel or Supabase. The remaining action is a **redeploy** of
+`main`: it costs nothing, touches no data, and it is the fix if the deployment simply predates the corrected
+variables - and if it is not, the new log line now names the cause instead of leaving it to be guessed.
+
+
 
 
 

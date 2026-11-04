@@ -194,3 +194,43 @@ describe("a card finished without a session", () => {
     );
   });
 });
+
+/**
+ * The operator-side record a failed sign-in leaves behind (`ISS-28` follow-up).
+ *
+ * The incident this closes: a production deployment carried a publishable key that did not belong to the
+ * project in its URL, the account service refused every sign-in, and nothing anywhere said so - the screen
+ * showed one sentence and the logs showed nothing at all, so the failure looked exactly like a person typing
+ * the wrong password. These assertions hold the three properties that make that impossible to repeat: the
+ * deployment's own failures are recorded, the record is content-free, and the answer to a caller is
+ * unchanged.
+ */
+describe("what a failed sign-in leaves in the log", () => {
+  const route = source("src/app/api/auth/sign-in/route.ts");
+
+  it("records a refused configuration and a provider-side refusal, each with a category", () => {
+    assert.ok(route.includes('recordRefusal("configuration-refused", resolution.reason)'));
+    assert.ok(route.includes('recordRefusal("provider-refusal", result.reason)'));
+    assert.ok(
+      route.includes('result.reason !== "rejected"'),
+      "an ordinary wrong password writes nothing, so the log cannot be filled by a stranger",
+    );
+  });
+
+  it("records one content-free line, in the shape the model boundary already uses", () => {
+    assert.ok(route.includes("console.warn(`SomaMap sign-in: ${JSON.stringify({ event, reason })}`)"));
+
+    for (const forbidden of ["email", "password", "token", "anonKey", "apiKey"]) {
+      assert.equal(
+        new RegExp(`console\\.(log|warn|error)\\([^)]*${forbidden}`, "i").test(route),
+        false,
+        `the record must not carry ${forbidden}`,
+      );
+    }
+  });
+
+  it("still answers one flat message, so no caller learns anything new", () => {
+    assert.ok(route.includes('NextResponse.json({ error: "sign-in failed" }, { status: 401 })'));
+  });
+});
+
