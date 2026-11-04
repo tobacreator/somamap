@@ -160,9 +160,12 @@ own wording says so on the card.
 
 The live integration calls a Meta model served through **Baseten** (`https://inference.baseten.co/v1`),
 using the OpenAI-compatible chat-completions API and the model identifier the provider issued for this
-access. No model is hard-coded beyond that configured default, and no provider terms are restated here:
-operators deploying this project are responsible for complying with the terms of the provider they configure
-and of the model they select.
+access. That matches Baseten's own documentation for Model APIs, which states that "Model APIs use the shared
+base URL `https://inference.baseten.co/v1` and a model slug", that OpenAI Chat Completions is one of the APIs
+they expose, and that a Baseten API key authenticates requests
+(<https://docs.baseten.co/inference/model-apis/overview>). No model is hard-coded beyond that configured
+default, and no provider terms are restated here: operators deploying this project are responsible for
+complying with the terms of the provider they configure and of the model they select.
 
 ## License
 
