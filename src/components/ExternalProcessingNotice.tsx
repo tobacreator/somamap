@@ -2,6 +2,7 @@ import Button from "@/components/Button";
 import Panel from "@/components/Panel";
 import {
   EXTERNAL_PROCESSING_DECLINE,
+  EXTERNAL_PROCESSING_DETAILS_LABEL,
   EXTERNAL_PROCESSING_DISCLOSURE,
   EXTERNAL_PROCESSING_TITLE,
 } from "@/lib/copy";
@@ -41,12 +42,24 @@ export default function ExternalProcessingNotice({
 
   return (
     <Panel>
-      <h1 className="text-2xl font-semibold tracking-tight text-ink">{EXTERNAL_PROCESSING_TITLE}</h1>
-      <p className="text-body leading-6 text-ink">{disclosure.ai}</p>
-      <p className="text-body leading-6 text-ink-muted">{disclosure.data}</p>
+      <h1 className="text-lead font-medium text-ink">{EXTERNAL_PROCESSING_TITLE}</h1>
+
+      <p className="text-label leading-6 text-ink">{disclosure.ai}</p>
+      <p className="text-label leading-6 text-ink-muted">{disclosure.data}</p>
+
+      {/* The detail, one tap away and never the only place the fact lives: the sentence above already
+          says the words are sent. A native `details` element, so it needs no state, works without
+          JavaScript, and is reachable by keyboard and screen reader on every platform. */}
+      <details className="text-label text-ink-muted">
+        <summary className="cursor-pointer text-label font-medium text-accent-text">
+          {EXTERNAL_PROCESSING_DETAILS_LABEL}
+        </summary>
+
+        <p className="pt-2 text-meta leading-5 text-ink-muted">{disclosure.details}</p>
+      </details>
 
       {/* Two ways on, and no third: the acknowledgement, or back to the check-in with nothing sent. */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div className="flex flex-wrap items-center gap-3">
         <Button id="external-processing-acknowledge" onClick={onAcknowledge}>
           {disclosure.acknowledge}
         </Button>

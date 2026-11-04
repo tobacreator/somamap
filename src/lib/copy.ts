@@ -9,6 +9,8 @@
  * closed instead of following this file wherever it goes.
  */
 
+import { EXTERNAL_PROVIDER_NAME } from "./externalProcessing.ts";
+
 /** The fixed line iron rule 5 requires on every screen, verbatim. */
 export const DISCLAIMER_LINE =
   "SomaMap is a vocabulary and journaling tool. It does not interpret sensations or give medical advice.";
@@ -95,6 +97,29 @@ export const INTERVIEW_NOTE =
 export const INTERVIEW_ANSWER_HINT = "Type a few words to continue.";
 
 /**
+ * The vocabulary helper (`ISS-22`).
+ *
+ * The interview's premise is that a person may have a sensation and no words for it. The helper offers a
+ * short reviewed list of descriptive words with one-line explanations, and the words go into the answer
+ * the person is writing only when they tap one - so a suggestion becomes theirs by their own act, and
+ * one they ignore never reaches the card. The note says that out loud, because a list of words a product
+ * puts in front of someone must not look like something the product decided about them.
+ */
+export const INTERVIEW_VOCABULARY_SUMMARY = "Not sure how to describe it? Try a word";
+export const INTERVIEW_VOCABULARY_NOTE =
+  "Suggestions only: tap one to add it to your answer, or keep your own words. Nothing is added unless you tap it.";
+export const INTERVIEW_VOCABULARY_WORD_LABEL = (word: string): string => `Add ${word} to your answer`;
+
+/**
+ * Shown while the last answer is being turned into a card.
+ *
+ * The completing turn is the only turn that reaches a provider, so it is the only turn that can take a
+ * moment - and "Getting the next question..." is the wrong sentence for it, because no question is
+ * coming. That mismatch is what made the screen look frozen on the last question (`ISS-22`).
+ */
+export const INTERVIEW_COMPLETING = "Putting your card together...";
+
+/**
  * The external processing disclosure and its acknowledgement (Phase 2D).
  *
  * The interview is worded by an external model provider, so the user's own words - the description
@@ -136,20 +161,36 @@ export const INTERVIEW_ANSWER_HINT = "Type a few words to continue.";
  *      `DISCLAIMER_LINE`, rendered once per screen by the shell (`Screen` -> `DisclaimerFooter`).
  *   3. **No prohibited stem.** None of rule 5's four words appears, so the copy scan (T5) stays clean.
  */
-export type ProcessingDisclosure = { ai: string; data: string; acknowledge: string };
+export type ProcessingDisclosure = {
+  /** The first sentence: who words the card. */
+  ai: string;
+  /**
+   * What travels and to whom - the sentence a person must be able to read **without opening anything**.
+   * It is never only in the expander: hiding the fact that data leaves the product would be the one
+   * failure this screen exists to prevent.
+   */
+  data: string;
+  /** The primary control's label. */
+  acknowledge: string;
+  /** The detail behind the expander: the provider's name, and exactly what is sent. */
+  details: string;
+};
 
 /** What the user is told when nothing is sent anywhere: this build words the card itself. */
 export const EXTERNAL_PROCESSING_MOCK: ProcessingDisclosure = {
   ai: "In this build the interview is worded by SomaMap itself, with no external provider involved.",
   data: "The description you wrote, the location you chose or typed, and your answers are used to word your card. They are not sent to Baseten or to any other external provider.",
-  acknowledge: "I understand - start the interview",
+  acknowledge: "Continue without AI",
+  details:
+    "Nothing leaves this build: the card is worded from SomaMap's own recorded examples, and no external provider is contacted.",
 };
 
 /** What the user is told when their words do go to Baseten: who, which words, and how often. */
 export const EXTERNAL_PROCESSING_LIVE: ProcessingDisclosure = {
-  ai: "The interview is worded by an AI model from Baseten, an external provider.",
-  data: "The description you wrote, the location you chose or typed, and your answers are sent to Baseten to word your card, and they may be sent again as the interview goes on.",
-  acknowledge: "I understand - send my words to Baseten",
+  ai: "SomaMap uses an external AI provider to help shape your sensation card.",
+  data: "Your description, selected location, and interview answers are sent to Baseten, and they may be sent again as the interview goes on.",
+  acknowledge: "Continue with AI",
+  details: `The provider is ${EXTERNAL_PROVIDER_NAME}. What is sent: the description you wrote, the location you chose or typed, and each answer you give - one request per turn, and nothing else.`,
 };
 
 /** The disclosure for a mode, by mode. The server decides which one is shown. */
@@ -158,7 +199,9 @@ export const EXTERNAL_PROCESSING_DISCLOSURE: Record<"mock" | "live", ProcessingD
   live: EXTERNAL_PROCESSING_LIVE,
 };
 
-export const EXTERNAL_PROCESSING_TITLE = "Before the interview starts";
+/** The card's heading, and the label on the expander that carries the provider's name. */
+export const EXTERNAL_PROCESSING_TITLE = "A note about your words";
+export const EXTERNAL_PROCESSING_DETAILS_LABEL = "Which provider, and what is sent";
 export const EXTERNAL_PROCESSING_DECLINE = "Not now";
 export const EXTERNAL_PROCESSING_DECLINED =
   "Nothing was sent. Your words are still here, and you can start the interview whenever you want.";

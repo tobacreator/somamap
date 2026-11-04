@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
-import Button from "@/components/Button";
+import Button, { FOCUS_RING } from "@/components/Button";
 import CardView from "@/components/CardView";
 import CrisisScreen from "@/components/CrisisScreen";
 import Panel from "@/components/Panel";
@@ -27,12 +27,16 @@ import {
   INTERVIEW_ANSWER_PLACEHOLDER,
   INTERVIEW_ANSWER_SUBMIT,
   INTERVIEW_BACK,
+  INTERVIEW_COMPLETING,
   INTERVIEW_ERROR,
   INTERVIEW_LOADING,
   INTERVIEW_NOTE,
   INTERVIEW_PROGRESS,
   INTERVIEW_RETRY,
   INTERVIEW_STEP_LABEL,
+  INTERVIEW_VOCABULARY_NOTE,
+  INTERVIEW_VOCABULARY_SUMMARY,
+  INTERVIEW_VOCABULARY_WORD_LABEL,
   JOURNAL_CARD_SAVED,
   JOURNAL_CARD_SAVE_FAILED,
   JOURNAL_CARD_SAVING,
@@ -41,6 +45,7 @@ import {
 } from "@/lib/copy";
 import {
   EMPTY_INTERVIEW_STATE,
+  QUESTIONS_PER_SESSION,
   afterResponse,
   answerRequest,
   answersWith,
@@ -67,6 +72,7 @@ import { savedCardFromPayload } from "@/lib/journal";
 import { saveIntentFor } from "@/lib/journalSave";
 import type { BodyView } from "@/lib/regions";
 import type { SensationCard } from "@/lib/schema";
+import { SENSATION_VOCABULARY, addWordToAnswer } from "@/lib/vocabulary";
 
 /**
  * The interview screen - blueprint Chapter 5.3 (the Day-4 prompt) and gate G4.
@@ -103,6 +109,16 @@ import type { SensationCard } from "@/lib/schema";
 
 const INTERVIEW_ENDPOINT = "/api/interview";
 
+/**
+ * The longest this screen waits for a turn before it stops waiting and offers a retry (`ISS-22`).
+ *
+ * The route has its own 20-second provider timeout, so this is a backstop rather than the mechanism. It
+ * exists so that a hung connection, a proxy that never answers, or a route that never returns cannot
+ * leave the screen waiting for ever: a stopped wait becomes the failure state, which has a retry, and
+ * never a silent stall with a disabled field.
+ */
+const INTERVIEW_TIMEOUT_MS = 30_000;
+
 /** Where a completed card is saved (the journal's only write). */
 const JOURNAL_ENDPOINT = "/api/journal";
 
@@ -124,6 +140,7 @@ async function postInterview(body: InterviewRequest, mode: ProcessingMode): Prom
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(withAcknowledgement(body, mode)),
+      signal: AbortSignal.timeout(INTERVIEW_TIMEOUT_MS),
     });
 
     if (!response.ok) return { ok: false, detail: `the route answered ${response.status}` };
@@ -405,6 +422,15 @@ export default function InterviewChat({
 
   const question = currentQuestion(flow);
   const busy = flow.phase === "submitting";
+  /**
+   * Whether the turn in flight is the one that finishes the session (`ISS-22`).
+   *
+   * The submitting state carries the answer just given, so a session whose answers are all in flight is
+   * the turn that will word the card. That is what lets the screen say "putting your card together"
+   * instead of promising a question that is not coming - the copy mismatch that made the last question
+   * look like a freeze.
+   */
+  const completing = flow.phase === "submitting" && flow.answers.length >= QUESTIONS_PER_SESSION;
   const readyToSend = text.trim().length > 0 && !busy;
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -707,13 +733,43 @@ export default function InterviewChat({
           hint={busy || readyToSend ? undefined : INTERVIEW_ANSWER_HINT}
         />
 
+        {/* The words a person can borrow when they have none (`ISS-22`). A suggestion reaches the answer
+            only when they tap it, which is what makes it theirs; the note says so, and the field stays
+            theirs to edit either way. Native `details`, so it costs no state and works without script. */}
+        <details className="text-label text-ink-muted">
+          <summary className="cursor-pointer text-label font-medium text-accent-text">
+            {INTERVIEW_VOCABULARY_SUMMARY}
+          </summary>
+
+          <div className="flex flex-col gap-2 pt-2">
+            <p className="text-meta leading-5 text-ink-muted">{INTERVIEW_VOCABULARY_NOTE}</p>
+
+            <ul className="flex flex-col gap-1">
+              {SENSATION_VOCABULARY.map((candidate) => (
+                <li key={candidate.word}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    aria-label={INTERVIEW_VOCABULARY_WORD_LABEL(candidate.word)}
+                    onClick={() => setText(addWordToAnswer(text, candidate.word))}
+                    className={`flex min-h-11 w-full flex-col items-start rounded-control border border-hairline px-3 py-2 text-left hover:bg-tint disabled:text-ink-muted ${FOCUS_RING}`}
+                  >
+                    <span className="text-label font-medium text-ink">{candidate.word}</span>
+                    <span className="text-meta text-ink-muted">{candidate.meaning}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </details>
+
         <Button id="interview-submit" type="submit" disabled={!readyToSend} className="self-start">
           {INTERVIEW_ANSWER_SUBMIT}
         </Button>
 
         {busy ? (
           <p role="status" className="text-meta text-ink-muted">
-            {INTERVIEW_LOADING}
+            {completing ? INTERVIEW_COMPLETING : INTERVIEW_LOADING}
           </p>
         ) : null}
       </form>

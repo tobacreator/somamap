@@ -6,6 +6,7 @@ import {
   DISCLAIMER_LINE,
   EXTERNAL_PROCESSING_DECLINE,
   EXTERNAL_PROCESSING_DECLINED,
+  EXTERNAL_PROCESSING_DETAILS_LABEL,
   EXTERNAL_PROCESSING_LIVE,
   EXTERNAL_PROCESSING_MOCK,
   EXTERNAL_PROCESSING_TITLE,
@@ -35,11 +36,14 @@ import {
 /** Every user-facing string this phase adds, in one place for the copy checks below. */
 const DISCLOSURE_COPY = [
   EXTERNAL_PROCESSING_TITLE,
+  EXTERNAL_PROCESSING_DETAILS_LABEL,
   EXTERNAL_PROCESSING_MOCK.ai,
   EXTERNAL_PROCESSING_MOCK.data,
+  EXTERNAL_PROCESSING_MOCK.details,
   EXTERNAL_PROCESSING_MOCK.acknowledge,
   EXTERNAL_PROCESSING_LIVE.ai,
   EXTERNAL_PROCESSING_LIVE.data,
+  EXTERNAL_PROCESSING_LIVE.details,
   EXTERNAL_PROCESSING_LIVE.acknowledge,
   EXTERNAL_PROCESSING_DECLINE,
   EXTERNAL_PROCESSING_DECLINED,
@@ -179,13 +183,16 @@ describe("the disclosure is the mode's own (Phase 2D)", () => {
 
   it("offers an explicit act in both modes, and a way to decline", () => {
     for (const disclosure of [EXTERNAL_PROCESSING_MOCK, EXTERNAL_PROCESSING_LIVE]) {
-      assert.ok(disclosure.acknowledge.startsWith("I understand"), "the acknowledgement is explicit");
+      assert.ok(disclosure.acknowledge.startsWith("Continue"), "the acknowledgement is an affirmative act");
+      assert.ok(/with(out)? AI/i.test(disclosure.acknowledge), "and it names what the person is agreeing to");
       assert.notEqual(disclosure.acknowledge, EXTERNAL_PROCESSING_DECLINE);
     }
 
+    // The provider is named on the screen the person reads *before* pressing the control, which is where
+    // naming it matters; the control itself says what will happen rather than repeating the name.
     assert.ok(
-      EXTERNAL_PROCESSING_LIVE.acknowledge.includes(EXTERNAL_PROVIDER_NAME),
-      "the live acknowledgement names the provider",
+      `${EXTERNAL_PROCESSING_LIVE.data} ${EXTERNAL_PROCESSING_LIVE.details}`.includes(EXTERNAL_PROVIDER_NAME),
+      "the live disclosure names the provider in the sentence, not only in the control",
     );
     assert.ok(EXTERNAL_PROCESSING_DECLINED.toLowerCase().includes("nothing was sent"));
   });
@@ -211,6 +218,45 @@ describe("the saved lines are about this product's own journal, not a provider (
       assert.equal(/Baseten|provider/i.test(line), false, `no provider is mentioned: ${line}`);
       assert.equal(line.toLowerCase().includes("nothing is saved"), false, "and not as an absolute claim");
     }
+  });
+});
+
+describe("the disclosure names the provider and what is sent (ISS-21)", () => {
+  it("names the provider in the sentence that is visible without opening anything", () => {
+    assert.ok(EXTERNAL_PROCESSING_LIVE.data.includes(EXTERNAL_PROVIDER_NAME));
+    assert.ok(/are sent to/i.test(EXTERNAL_PROCESSING_LIVE.data), "the fact is stated, not implied");
+    assert.ok(/sent again/i.test(EXTERNAL_PROCESSING_LIVE.data), "and that every turn re-sends it");
+  });
+
+  it("says what travels, in the visible sentence and again in the detail", () => {
+    for (const word of ["description", "location", "answer"]) {
+      assert.ok(EXTERNAL_PROCESSING_LIVE.details.toLowerCase().includes(word), `the detail names the ${word}`);
+    }
+
+    assert.ok(/description/i.test(EXTERNAL_PROCESSING_LIVE.data));
+    assert.ok(/location/i.test(EXTERNAL_PROCESSING_LIVE.data));
+    assert.ok(/answers/i.test(EXTERNAL_PROCESSING_LIVE.data));
+  });
+
+  it("keeps a build that sends nothing honest: no provider is named as a recipient", () => {
+    const mock = `${EXTERNAL_PROCESSING_MOCK.ai} ${EXTERNAL_PROCESSING_MOCK.data} ${EXTERNAL_PROCESSING_MOCK.details}`;
+
+    assert.ok(/no external provider/i.test(mock), "it says there is no external provider");
+    assert.ok(mock.includes("not sent to Baseten"), "and that nothing is sent to Baseten");
+    assert.equal(/are sent to/i.test(mock), false, "it never claims anything is sent");
+    assert.equal(/sent again/i.test(mock), false);
+  });
+
+  it("labels the expander with what is behind it, so the detail is findable", () => {
+    assert.ok(/provider/i.test(EXTERNAL_PROCESSING_DETAILS_LABEL));
+    assert.ok(/sent/i.test(EXTERNAL_PROCESSING_DETAILS_LABEL));
+  });
+
+  it("leaves the acknowledgement values exactly as they were", () => {
+    assert.equal(acknowledgementFor("live"), EXTERNAL_PROVIDER_ID);
+    assert.equal(acknowledgementFor("mock"), LOCAL_PROCESSING_ID);
+    assert.equal(isAcknowledgement(EXTERNAL_PROVIDER_ID, "live"), true);
+    assert.equal(isAcknowledgement(LOCAL_PROCESSING_ID, "mock"), true);
   });
 });
 
