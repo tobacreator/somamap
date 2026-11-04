@@ -13294,5 +13294,33 @@ length); no RLS policy, authentication check, consent gate, crisis screen or sch
 `ISS-28` implementation was not reopened; mock mode was never used as a substitute for a live result; and no
 success was claimed without a status code behind it.
 
+---
+
+## Entry 63 - 2026-11-04 21:04 (+01:00) - The first production check-in, audited read-only (documentation only, no code change)
+
+The owner completed a signed-in check-in on the deployed application and confirmed that the resulting card was
+saved in the journal. This entry records only what was observed and what the code contract proves. It makes no
+claim that the stored row was inspected, and none about the question order of that production session.
+
+| observation | evidence |
+|---|---|
+| Production is configured for live Baseten inference | the deployment's own `/checkin` payload reports `{"mode":"live"}`, both on the URL the owner used and on the branch alias - two different deployments, both live, both answering `200` |
+| The check-in completed and the card was saved in the journal | the owner's report: the card appeared in the journal, and the confirmation `CARD_EDIT_SAVED` ("Your card has been updated.") comes from `SavedCardEditor`, which renders the stored row through `CardView` |
+| The visible card maps onto the approved fields | "In your words: `feels light`" -> `user_own_sentence`; "Where: `head`" -> `location_label`; "Words you chose: `light, pressure, spreading, tight, knot`" -> `quality_words` (five, exactly the cap); "It feels like: `a tight knot`" -> `intensity_metaphor`. The labels are `CARD_FIELD_LABELS` (`src/lib/copy.ts:689-695`), whose keys a test asserts equal to the schema's five |
+| The person's own wording is preserved | `rowFor` (`src/lib/cardView.ts:66-67`) displays the stored value verbatim and never rewords it, and the card view renders only a payload that passed the strict five-field schema |
+| `duration` is required in the stored schema and intentionally omitted from the visible card while unanswered | the column is `text not null` (`supabase/migrations/001_init.sql:55`), the write allowlist always sends it (`CARD_COLUMNS`), and the read path refuses a row whose `duration` is not a string (`src/lib/journal.ts:112`) - so the card could not have rendered unless it came back as a string. `displayRows` (`src/lib/cardView.ts:97-99`) filters the row out while it is unanswered: the documented behaviour, not a missing field, and the schema still carries five fields |
+| Q14's final-turn behaviour | **verified by local/live-provider route tests only** (Entry 62: `Q6 -> Q3 -> Q14`, Q14 the last asking turn, four of four turns `200`). It is **not** verified by runtime evidence from this production interview: `cards` stores no question order, the interview route writes nothing on success, and the Vercel runtime logs are not reachable from this workspace |
+| The production card row itself | **not directly inspected.** This workspace has no Supabase credentials, and row-level security scopes a row to the signed-in user, so the values above are read from the card the application rendered, not from the database |
+
+**Deployment identity, stated precisely.** The URL the owner used is one specific deployment and is not the
+branch alias (`x-vercel-id` `lhr1::hl2bc-...` against `cpt1::nh4dr-...`); Vercel publishes no GitHub deployment
+for this project, so the commit behind that URL is not determinable from outside. The branch alias serves the
+newest `main` deployment, which is `959b3dc` and includes `c1ed9eb` (`maxDuration = 60`).
+
+**No code change was identified, and none was made.** The audit was read-only: `GET` requests only - no `POST`
+reached any production route, so no record was created - no credential or token was read or printed, and nothing
+was staged, committed, pushed or deployed while it ran.
+
+
 
 
