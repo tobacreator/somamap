@@ -652,8 +652,9 @@ export const HOME_JOURNAL_NOTE =
  * to know why an email was refused, because the account service does not say, and a screen that guessed
  * would be inventing a reason.
  *
- * There is deliberately no password-reset link: password reset is not implemented in this build, and a
- * link that led nowhere would be worse than its absence.
+ * There is deliberately no password-reset link here. Recovery exists (`/reset-password`), and it is reached
+ * from the link the account service emails; this build has no "send me a link" action, and a link to one
+ * would lead nowhere.
  */
 export const SIGNUP_TITLE = "Create an account";
 export const SIGNUP_INTRO = "An account keeps the cards you make, so you can come back to your own words.";
@@ -680,6 +681,35 @@ export const SIGNIN_EMAIL = "Email";
 export const SIGNIN_PASSWORD = "Password";
 export const SIGNIN_SUBMIT = "Sign in";
 export const SIGNIN_FAILED = "That sign-in did not work.";
+
+/**
+ * The password-recovery screen - the half of the session work that was missing.
+ *
+ * The copy states what this screen does and nothing more. It never says why a link stopped working beyond
+ * "not valid any more", because the client genuinely does not know (the server answers categories), and it
+ * offers only destinations this app serves: sign in, or create an account. There is deliberately no link to
+ * a "send me a new link" screen, because sending one is the operator's action in this build, and a link
+ * that led nowhere would be worse than its absence.
+ */
+export const RESET_TITLE = "Choose a new password";
+export const RESET_INTRO = "Set a new password for your account, then sign in with it.";
+export const RESET_PASSWORD = "New password";
+export const RESET_CONFIRM = "Type it again";
+export const RESET_SUBMIT = "Save my new password";
+export const RESET_INVALID = "Enter your new password twice.";
+export const RESET_SHORT = "Use at least six characters.";
+export const RESET_LONG = "That password is too long.";
+export const RESET_MISMATCH = "The two passwords do not match.";
+export const RESET_INCOMPLETE = "This page needs a recovery link from your email. Sign in, or create an account.";
+export const RESET_EXPIRED = "That recovery link has expired. Sign in, or create an account.";
+export const RESET_INVALID_TOKEN = "That link is not valid any more. Sign in, or create an account.";
+export const RESET_WEAK = "That password was not accepted. Try a longer one.";
+export const RESET_UNAVAILABLE = "The account service could not be reached. Nothing was changed. Try again.";
+export const RESET_NOT_CONFIGURED = "Accounts are not available in this deployment.";
+export const RESET_SAVED_TITLE = "Your password has been changed";
+export const RESET_SAVED_BODY = "Sign in with your new password.";
+export const RESET_SIGNIN_LINK = "Go to sign in";
+
 
 /**
  * The five field labels, one per schema field. The keys are the schema's own field

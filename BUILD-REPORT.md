@@ -13321,6 +13321,59 @@ newest `main` deployment, which is `959b3dc` and includes `c1ed9eb` (`maxDuratio
 reached any production route, so no record was created - no credential or token was read or printed, and nothing
 was staged, committed, pushed or deployed while it ran.
 
+---
+
+## Entry 64 - 2026-11-04 22:28 (+01:00) - Password recovery exists now: a recovery link opens a screen that can change the password (new work, no production setting touched)
+
+**The report that started it.** A recovery email was sent from the account service, the link carried
+`type=recovery`, and following it landed on SomaMap's home page with no password field and no way to change
+anything.
+
+**The diagnosis, from the source and not from a guess.** The build had **no recovery handling of any kind**.
+The auth surface was `api/auth/sign-in`, `sign-up` and `sign-out`; there was no callback route, and a repo-wide
+search found **nothing that reads a URL fragment or a recovery token** - only GoTrue *response* parsing in
+`authSession.ts` and `authSignUp.ts`. The account service redirects a recovery link to the site's configured
+address (the root, in this deployment) with the session in the URL **fragment**
+(`#access_token=...&type=recovery`). A fragment is never sent to a server, and no client code looked at it, so
+the browser simply sat on `/`. The repository had already said so in two comments ("password reset is not
+implemented in this build"); those two comments are corrected in this entry, because they are no longer true.
+
+**What was built, and why each piece is the smallest one that works.**
+
+| file | role |
+|---|---|
+| `src/lib/passwordReset.ts` (new) | pure: reads a recovery payload from a fragment (`access_token` + `type=recovery`) **or** a `token_hash` in the query, reports the provider's own refusal as expired, classifies a token by its `amr` claim, and applies the password rules. Tested without a browser. |
+| `src/lib/passwordResetCall.ts` (new) | pure `fetch`, the shape `authSignUp.ts` established: `GET /auth/v1/user` to **verify** the bearer, `PUT /auth/v1/user {password}` to change it, and `POST /auth/v1/verify {type:"recovery", token_hash}` for a hashed link. |
+| `src/app/api/auth/reset-password/route.ts` (new) | resolves the target through the existing `supabaseTarget()`, then: plausible password -> verify bearer -> recovery marker (when the token carries one) -> change. Categories only. |
+| `src/app/reset-password/page.tsx` + `src/components/ResetPasswordForm.tsx` (new) | the screen. It reads the fragment, immediately removes it from the address bar, takes the new password twice, and points at `/sign-in` when it is done. |
+| `src/components/RecoveryRedirect.tsx` (new, mounted once in `layout.tsx`) | the recovery link lands on the **site root**, and changing that is a production setting this task must not touch, so this forwards any recovery payload to `/reset-password`. It does nothing on an ordinary page view. |
+
+**The security of the path, stated plainly.** Nothing is changed before the bearer is verified by the account
+service, so an expired, used or forged link is refused with nothing touched. The user is **never named by the
+caller** - the account service takes the user from the token - so one person's link cannot be pointed at
+another person's account. A token that carries an `amr` claim must say `recovery`; a token that carries none is
+accepted, so a project that omits the claim cannot lock a person out of their own link. The fragment is stripped
+from the address bar as soon as it is read, and nothing logs a token, a password or an address. No client SDK
+was added: the browser talks only to this app's own route, which talks to the account service server-side,
+exactly as sign-in and sign-up already did.
+
+**What it deliberately does not do.** It sets no cookie and signs nobody in - the person is sent to sign in with
+the password they just chose, which is the flow the screen describes. It adds no "send me a link" action: that
+is the operator's action in this build, and a link to a screen that did not exist would be worse than its
+absence. No production setting, secret, password or user record was read or changed.
+
+**Gates.** `tsc --noEmit` exit **0**; `lint` **0 errors** (2 pre-existing harness warnings); `npm test` **red
+team 8/8 PASS, exit 0** - the copy scan now reads 123 files with zero prohibited hits - plus the unit suite;
+`npm run build` **success, 18 routes** including `/reset-password` and `/api/auth/reset-password`. The two new
+test files run 20 assertions with **0 failures** (`node --test src/lib/passwordReset.test.ts
+src/lib/passwordResetCall.test.ts`). A local smoke test of the new route answered `500 {"error":"not
+configured","reason":"missing-configuration"}` - correct, because this workspace has no account service
+configured, and it proves the route resolves its target and refuses before any request is made.
+
+**The one step that remains, and it is the owner's:** open the recovery link, choose a new password on the
+screen that now appears, and sign in with it.
+
+
 
 
 

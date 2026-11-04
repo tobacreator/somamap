@@ -20,8 +20,9 @@ import { SIGNUP_INTRO, SIGNUP_SIGNIN_PROMPT, SIGNUP_TITLE } from "@/lib/copy";
  * do. The fields and the button are the shared components unchanged, so no control was redesigned to make
  * this screen match - only the page it stands on.
  *
- * No password-reset link appears here: password reset is not implemented in this build, and a link that
- * led nowhere would be worse than its absence.
+ * No password-reset link appears here. Password recovery exists (`/reset-password`), but it is reached from
+ * the link the account service emails, not from a screen in this app: this build has no "send me a link"
+ * action, and a link to one would lead nowhere.
  */
 export const metadata: Metadata = {
   title: "SomaMap - create an account",

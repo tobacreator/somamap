@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Newsreader } from "next/font/google";
 import "./globals.css";
 
+import RecoveryRedirect from "@/components/RecoveryRedirect";
 import { HOME_H1, HOME_SUBHEAD, HOME_TITLE_TAG } from "@/lib/copy";
+
 
 /**
  * The interface face: Geist, loaded and now actually used.
@@ -58,7 +60,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${newsreader.variable} font-sans h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {/*
+          One mount for the whole app: a recovery link lands wherever the project's configured address points
+          (the root, in this deployment), and the fragment it carries can only be read in the browser. This
+          forwards a recovery payload to `/reset-password` and does nothing on any other page view.
+        */}
+        <RecoveryRedirect />
+
+        {children}
+      </body>
     </html>
   );
 }
