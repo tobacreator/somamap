@@ -13240,4 +13240,59 @@ files in the workspace were left untracked and unpublished rather than committed
 deployed and smoke-tested; the anonymous journey works on the public URL; live inference and the account
 journey are **not** verified, for the two external reasons above, and the report says so in those words.
 
+---
+
+## Entry 62 - 2026-11-04 20:25 (+01:00) - The live path verified for real: the credential was never refused, a whole interview ran on Baseten, and the platform's own limit was the real hazard (B1 and B3 resolved)
+
+**What was asked.** Confirm the corrected environment, run a genuine live smoke test against the configured
+provider, drive the real end-to-end interview, check what the deployment is actually doing, and report
+evidence rather than assumptions.
+
+**The correction, confirmed without printing anything secret.** `.env.local` now holds `BASETEN_API_KEY`
+(value length 45) and `MODEL_MODE=live` on two separate lines; no line carries both, and no other variable is
+set, so the code's approved defaults apply: `https://inference.baseten.co/v1` and
+`meta-models/muse-spark-open-1026` (`src/lib/baseten.ts` lines 50 and 60), which are exactly the base URL and
+the model identifier the provider's own email names. **The earlier `401` was this workspace's mistake**: the
+mode had been appended onto the key's line, so the bearer token the adapter sent was the key with
+`MODEL_MODE=live` glued to its end. The provider refused that string, correctly. Nothing was ever wrong with the
+key, the model or the account, and no signup was missing.
+
+| # | check | evidence |
+|---|---|---|
+| 1 | Provider reachability, raw | `dns` resolves `inference.baseten.co`; `GET /v1/models` **200**; `POST /v1/chat/completions` **200 in 2.0 s**, `model` echoed `meta-models/muse-spark-open-1026`, usage reported (`total_tokens: 306`, including `reasoning_tokens: 143` - a reasoning model) |
+| 2 | Complete interview, library level (the app's own `interviewStep` + adapter + validator) | **4 requests, all HTTP 200**; latencies 13.9 / 10.6 / 5.0 / 14.4 s; questions `Q6 -> Q3 -> Q14`, every one `source=model` (the model chose it) and `wordingFromBank=true` (the wording came from the reviewed bank); `usedFallback: false`; zero content-free records |
+| 3 | Complete interview, **real HTTP route** (`POST /api/interview` on the running app) | **4 turns, all HTTP 200** in 16.3 / 11.0 / 5.0 / 10.8 s; `Q6 -> Q3 -> Q14`; **comparison question Q14 asked: true, and it was the last asking turn: true**; card exactly the five approved fields; `usedFallback: false`; no prohibited or advice phrasing; the person's own sentence present verbatim |
+| 4 | Card fidelity | `{"location_label":"shoulders","quality_words":["pressure","steady"],"intensity_metaphor":"a tight knot","duration":"","user_own_sentence":"It feels like a tight band across my shoulders, and it has been there since this morning. I don't know how to describe it."}` - the region is the person's, the two quality words are the two option words they chose, the comparison is the one they chose, the sentence is theirs word for word, and `duration` is empty because no approved question asks it (a documented limitation, and the row is hidden rather than shown as a missing answer) |
+| 5 | Consent gate | the same turn with the other mode's acknowledgement (`"local"` in a live build) is refused **HTTP 400 in 10 ms**, before any provider call |
+| 6 | Crisis shield | crisis language returns **HTTP 200 `{"status":"crisis"}` in 9 ms** - instantly, with no provider call, nothing worded and nothing saved |
+| 7 | Fail-closed against a real provider refusal | with a model the provider refuses, **every attempt answered `404`**, and the app still completed the session: each asking turn fell back to the reviewed bank sequence (`source=fallback`, `Q1 -> Q4 -> Q14`, comparison last), the final card was the reviewed fallback with `usedFallback: true`, still exactly five fields, region preserved, the person's words intact, and exactly one content-free record: `{"event":"model-output-rejected","reason":"provider-unavailable","keys":[],"questions":["Q1","Q4","Q14"],"mode":"live","failure":{"code":"http","status":404}}` |
+
+**One real hazard found and fixed.** Measured live turns run **5.0 s to 16.3 s** (and 15.6 s on a re-check
+after the change). A route that declares no execution limit inherits the platform's own: **10 s on Vercel
+Hobby, 15 s on Pro**. A live deployment would therefore have been cut off mid-turn and answered `504` - which
+looks exactly like a provider failure, and would have been one. `src/app/api/interview/route.ts` now declares
+`maxDuration = 60`, the documented Next.js route-segment option (read from this repo's own bundled docs before
+the change), and **the Vercel build for that commit reports `success`**. It raises the platform ceiling only:
+no behaviour change, no retry, nothing sent, mock mode untouched, and the adapter's own 20 s timeout and
+fail-closed path are unchanged.
+
+**Gates after the change.** `tsc --noEmit` exit **0**; `lint` **0 errors** (2 pre-existing harness warnings);
+`npm test` **red team 8/8 PASS, exit 0** plus the unit suite; `npm run build` **success, 16 routes**. Committed
+and pushed as `c1ed9eb` to `main` and `release/somamap-mvp-candidate`; the live route answered `200` again after
+the change.
+
+**The deployment, stated exactly.** Production is **still mock**: its own `/checkin` payload reports
+`{"mode":"mock"}`, so the public URL words every card from SomaMap's reviewed copy and makes no external
+request. Its `/` and `/checkin` both answer `200` with the fixed disclaimer, so the deployment is healthy - it
+is simply not configured for live. I could not configure it: the Vercel CLI on this machine is **not
+authenticated** (`Error: No existing credentials found`), there is no `.vercel` project link, and no
+`VERCEL_TOKEN` in the environment. That is the one remaining blocker, and section 12 B2 names the exact
+variables.
+
+**What was deliberately not done.** No secret was printed, logged or committed (the key is reported only as a
+length); no RLS policy, authentication check, consent gate, crisis screen or schema validation was touched; the
+`ISS-28` implementation was not reopened; mock mode was never used as a substitute for a live result; and no
+success was claimed without a status code behind it.
+
+
 

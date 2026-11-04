@@ -154,21 +154,22 @@ requests, capped a body, or limited how much text one request could carry.
 
 ---
 
-## 12. The two submission blockers, found by verifying the live path rather than assuming it (P0, OPEN, 2026-11-04)
+## 12. The submission blockers, found by verifying the live path rather than assuming it (P0, 2026-11-04; B1 and B3 resolved the same evening, B2 open)
 
 Both were found in the last hour of the submission window, by driving the application's own code against the
 real provider and by reading the deployed environment's own answers. Neither is a defect in the product: each
 is a missing external configuration that only the owner's accounts can supply. Nothing was invented, nothing
 was faked, and no protection was weakened to make a check pass.
 
-**B1 - the Baseten credential is refused (HTTP 401), so live inference cannot be verified.** The same probe
-that returned `200` in `ISS-26` now returns `401` for one chat-completions request to
-`inference.baseten.co` with model `meta-models/muse-spark-open-1026`; a metadata `GET /v1/models` with the same
-credential answers `502`. The application behaved correctly: the refusal became `provider-unavailable`, the
-reviewed fallback card was produced (`source: "fallback"`), the turn completed, and nothing was logged but a
-content-free category. This matches the account note that the provider account was still awaiting approval.
-**What must happen:** a working credential for the configured model, or the model identifier the provider
-actually issued, must be supplied. Until then no honest claim of live inference can be made.
+**B1 - RESOLVED (2026-11-04, evening): the credential was never refused. `MODEL_MODE=live` had been merged into
+the API-key line of `.env.local`, so the bearer token the adapter sent was the key with `MODEL_MODE=live` stuck
+onto the end of it, and the provider refused that string - correctly.** The `401` recorded here was therefore a
+workspace configuration mistake, not a statement about the key or the account, and no account signup was ever
+missing. With the file corrected to two variables on two separate lines, the same probe against the same
+endpoint and the same model answers **`200`**: `GET /v1/models` `200`, `POST /v1/chat/completions` `200` in
+2.0 s with the model echoed back, and a complete four-turn interview in which **every turn answered `200`** and
+the card was worded by the model (`usedFallback: false`). The paragraph below is kept unchanged as the record
+of what was believed at the time; it is superseded by this one.
 
 **B2 - the deployed environment runs mock, and has no Supabase configuration.** `MODEL_MODE` is set to `live`
 in `.env.local` in this workspace, and that is committed nowhere (it is gitignored, correctly). The
@@ -181,6 +182,20 @@ so accounts, the saved journal and the anonymous-to-account transfer cannot work
 redeploy. Both the deployed build and the deployed route were verified working otherwise: `/journal` serves
 `200` with no redirect for a signed-out visitor, and `POST /api/interview` answers `200 {"status":"asking"}`
 with bank question `Q1` and its two reviewed options.
+
+**B3 - RESOLVED: a live turn would have been killed by the hosting platform's own function limit.** Measured
+live turns on the configured reasoning model run **5.0 s to 16.3 s** (four-turn session: 16.3 / 11.0 / 5.0 /
+10.8 s; a later re-check: 15.6 s), and the adapter's own ceiling on a single turn is 20 s. A route that
+declares no execution limit inherits the platform's default - **10 s on Vercel Hobby, 15 s on Pro** - so a live
+deployment would have been cut off mid-turn and answered `504`: indistinguishable, to the person and to a
+viewer, from a provider failure, and it would have been one. `src/app/api/interview/route.ts` now declares
+`maxDuration = 60`, the documented Next.js route-segment option (read from
+`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/02-route-segment-config/maxDuration.md`
+before the change was made), and the Vercel build for that commit reports `success`. It raises the platform
+ceiling only: no behaviour change, no retry, nothing sent, mock mode untouched, and the adapter's own timeout
+and fail-closed path unchanged. If a turn is ever slower than the adapter's 20 s, `BASETEN_TIMEOUT_MS` (accepted
+range 1000-120000) is the configuration that decides how long the person waits before the reviewed card stands
+in.
 
 
 ## 2. The blockers in detail
