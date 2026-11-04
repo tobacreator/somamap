@@ -672,9 +672,9 @@ export const SIGNUP_CONFIRM_LINK = "Go to sign in";
 export const SIGNUP_SIGNIN_PROMPT = "Already have an account? Sign in";
 export const SIGNIN_SIGNUP_PROMPT = "New here? Create an account";
 
-/** Sign-in - the minimum session the delete-everything action needs. */
+/** Sign-in - the account the journal belongs to. */
 export const SIGNIN_TITLE = "Sign in";
-export const SIGNIN_INTRO = "Sign in to reach your settings.";
+export const SIGNIN_INTRO = "Sign in to keep the cards you make.";
 /** Shown while the form streams in: the destination it will use is read per request (`ISS-17`). */
 export const SIGNIN_LOADING = "Getting the sign-in form ready...";
 export const SIGNIN_EMAIL = "Email";

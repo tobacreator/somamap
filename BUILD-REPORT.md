@@ -13428,6 +13428,44 @@ credentials found`, and there is no Supabase token. So the environment values of
 `main`: it costs nothing, touches no data, and it is the fix if the deployment simply predates the corrected
 variables - and if it is not, the new log line now names the cause instead of leaving it to be guessed.
 
+---
+
+## Entry 66 - 2026-11-05 00:40 (+01:00) - Final readiness review and the demo materials (one misleading sentence corrected, `demo/` added)
+
+**The review.** Every gate was run against the current `main`: `tsc --noEmit` exit 0, `lint` 0 errors,
+`npm test` red-team **8/8 PASS** plus the unit suite, `npm run build` success. The core journey is verified
+working in production on `somamap-ebon.vercel.app` (account, sign-in, check-in, card, save, journal, refresh),
+and the deployment is in live mode with the model choosing the reviewed questions.
+
+**The one thing corrected.** `/sign-in` said *"Sign in to reach your settings."* - which stopped being true
+when the destination became the journal (`ISS-17`), and which a demo would have shown on camera. It now reads
+**"Sign in to keep the cards you make."**, and the comment above it ("the minimum session the
+delete-everything action needs") is corrected to what the screen actually is: the account the journal belongs
+to. No test pinned the old sentence, no other file referenced it, and the change is one string in
+`src/lib/copy.ts`. Nothing else in the product was touched: no behaviour, no schema, no copy that carries a
+claim, and no configuration.
+
+**What was added for the submission.** A `demo/` folder, written from the deployed application rather than
+from memory - every screen label quoted in it was read from the production build:
+
+| file | what it is |
+|---|---|
+| `demo/DEMO_SCRIPT.md` | the spoken narration, 90-120 seconds, with the beats the indie track is judged on: the problem, the model choosing from a reviewed bank, the five-field card, the word counts, the boundaries |
+| `demo/DEMO_STORYBOARD.md` | scene by scene: screen, action, narration, timing, transitions - and the edit points where the model's five-to-sixteen-second thinking time is cut, which is what brings a live session inside the target |
+| `demo/RECORDING_CHECKLIST.md` | private-window setup, demo account and fictional test data, browser size and the one phone-width beat, recording settings using tools already on Windows, and the pre-upload review |
+| `demo/DEMO_STATUS.md` | readiness, known limitations, verified-vs-recommended hackathon requirements, the draft submission description, and the shortest path to submission |
+
+**Hackathon requirements, verified from the official page** (`https://dev.meta.ai/events/global-hackathon`):
+Track 1 (indie developer) is judged on "creativity, technical ambition, and whether it works"; Theme 1 is
+"Build for Your World"; the Muse Spark series including **Muse Spark Open** is the model family, which is what
+`meta-models/muse-spark-open-1026` is; and "**Nov 4 Project submissions due by 9:00 PM ET**". No video length
+or form-field list is stated there, so the 90-120 second target is recorded as a recommendation, not a rule.
+
+**No video was created.** No screen-recording tool exists in this environment (Playwright is not installed
+either), so no recording was attempted and none is claimed; `demo/DEMO_STATUS.md` gives the smallest manual
+route instead - Snipping Tool's recorder or Xbox Game Bar, both already on Windows.
+
+
 
 
 
