@@ -53,6 +53,7 @@ import {
   answersWith,
   askedOf,
   asInFlight,
+  currentOptions,
   currentQuestion,
   firstRequest,
   progressFor,
@@ -527,6 +528,14 @@ export default function InterviewChat({
   }, [flow, view, canSave, onSaved]);
 
   const question = currentQuestion(flow);
+  /**
+   * The words offered for the question on screen (`ISS-26`): what the route's guided turn sent when it
+   * sent any, and otherwise the reviewed vocabulary the question itself names (`ISS-23`). The route's
+   * list is the model's, and it is only ever shown here - a word joins the answer when the person taps
+   * it, exactly as a reviewed word does.
+   */
+  const guided = currentOptions(flow);
+  const candidates = guided.length > 0 ? guided : question === null ? [] : vocabularyFor(question.id);
   const busy = flow.phase === "submitting";
   /**
    * Whether the turn in flight is the one that finishes the session (`ISS-22`).
@@ -886,7 +895,7 @@ export default function InterviewChat({
             asked (`ISS-23`): the group comes from the id the route sent with it, and a question with no
             group renders nothing at all. A suggestion reaches the answer only when they tap it, which is
             what makes it theirs; the note says so, and the field stays theirs to edit either way. */}
-        <VocabularyHelper candidates={vocabularyFor(question.id)} value={text} onChange={setText} busy={busy} />
+        <VocabularyHelper candidates={candidates} value={text} onChange={setText} busy={busy} />
 
         <div className="flex flex-wrap gap-3">
           <Button id="interview-submit" type="submit" disabled={!readyToSend} className="self-start">

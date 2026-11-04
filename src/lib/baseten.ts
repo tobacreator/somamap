@@ -1,4 +1,5 @@
 import { interviewFixture } from "./fixtures.ts";
+import { GUIDE_SYSTEM_INSTRUCTION, guidePromptFor } from "./guide.ts";
 import type { ModelAdapter, ModelSnapshot } from "./models.ts";
 
 /**
@@ -273,6 +274,24 @@ export function basetenDraftFrom(text: string): unknown {
   return draft;
 }
 
+/**
+ * The request body for a guided turn (`ISS-26`).
+ *
+ * The same endpoint, the same transport and the same rules as the card request: one request per turn,
+ * no retries, no streaming, nothing logged. `temperature: 0` for the same reason - the choice should be
+ * a function of what the person said, not of chance.
+ */
+export function basetenGuidePayloadFor(prompt: string, model: string = BASETEN_DEFAULT_MODEL): BasetenPayload {
+  return {
+    model,
+    messages: [
+      { role: "system", content: GUIDE_SYSTEM_INSTRUCTION },
+      { role: "user", content: prompt },
+    ],
+    temperature: 0,
+  };
+}
+
 export type BasetenAdapterOptions = {
   config: BasetenConfig;
   /** Injected so every path is testable without a network, and so mock mode never needs one. */
@@ -317,6 +336,56 @@ export function basetenAdapter({ config, transport = defaultBasetenTransport }: 
       // The numeric status only, and only when there is one: a number is not content, and it is the one
       // fact that separates a refused credential or model id from a reply of the wrong shape. The body is
       // never read on this path - not to log it, not to include it in the error.
+      if (response.status < 200 || response.status >= 300) {
+        throw new BasetenRequestError("http", response.status);
+      }
+
+      let text: string;
+
+      try {
+        text = await response.text();
+      } catch {
+        throw new BasetenRequestError("malformed");
+      }
+
+      return basetenDraftFrom(text);
+    },
+
+    /**
+     * The guided turn (`ISS-26`): which reviewed question to ask next, and the words to offer with it.
+     *
+     * The same request shape, the same transport and the same failure rule as `interview` - one call, no
+     * retry, and any failure leaves as a `BasetenRequestError` for the caller to fall back from. The
+     * reply is returned **as it arrived**: whether it names a real question, whether that question was
+     * already asked, and whether its options are plain descriptions are all decided in `guide.ts`, not
+     * here. That is the same division of labour the card path uses, and it is why this file can stay
+     * dumb about compliance.
+     */
+    async guide(snapshot, asked, choices) {
+      const url = `${config.baseUrl}${BASETEN_CHAT_PATH}`;
+      const prompt = guidePromptFor({
+        regionLabel: snapshot.regionLabel ?? "",
+        description: snapshot.description ?? "",
+        answers: snapshot.answers.map((answer) => ({ questionId: answer.questionId, text: answer.text })),
+        asked,
+        choices,
+      });
+      const body = JSON.stringify(basetenGuidePayloadFor(prompt, config.model));
+      let response: BasetenTransportResponse;
+
+      try {
+        response = await transport(url, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey}` },
+          body,
+          signal: AbortSignal.timeout(config.timeoutMs),
+        });
+      } catch (error) {
+        throw new BasetenRequestError(
+          error instanceof Error && error.name === "TimeoutError" ? "timeout" : "unreachable",
+        );
+      }
+
       if (response.status < 200 || response.status >= 300) {
         throw new BasetenRequestError("http", response.status);
       }

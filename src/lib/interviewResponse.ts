@@ -22,7 +22,15 @@ export function answerFor(result: InterviewStepResult): RouteAnswer {
   if (result.status === "invalid") return { status: 400, body: { error: "invalid request" } };
 
   if (result.status === "asking") {
-    return { status: 200, body: { status: result.status, question: result.question } };
+    return {
+      status: 200,
+      body: {
+        status: result.status,
+        question: result.question,
+        options: result.options ?? [],
+        source: result.source ?? "fallback",
+      },
+    };
   }
 
   if (result.status === "complete") {

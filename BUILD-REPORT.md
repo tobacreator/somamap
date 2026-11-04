@@ -12844,6 +12844,54 @@ card and leave the journal's count where it is. The two other things worth a loo
 "Not sure about this one" control on any question, and the fact that a card whose words were chosen while
 unsure can now be corrected without redoing the interview.
 
+## Entry 57 - 2026-11-04 12:05 (+01:00) - The interview becomes guided: the model chooses the next reviewed question and offers its own words (`ISS-26`, IMPLEMENTED)
+
+### 1. Task and boundaries
+
+Requested (the founder's hackathon mandate of 2026-11-04): the saved-card work passes, the product still
+feels like word selection, and Meta's models are not visibly doing anything a static vocabulary bank could
+not. Deliver the smallest real AI capability that makes the promise true, on the hackathon's deadline.
+
+Authorised: the model boundary (`baseten.ts`, `models.ts`), the interview state machine, the interview
+route's response, the client flow, a new guided-interview module, tests and the docs. **Not** touched: the
+five-field schema, the question bank's wording, the crisis shield, consent, the migration, RLS, the
+environment, and the four existing duplicate rows. **No paid provider call was made** - the mandate
+requires explicit approval for one, and it was not given.
+
+**Outcome in one line:** on every asking turn the model is now given the person's own words and the ids
+already asked, and it returns **which reviewed question to ask next** plus three or four descriptive
+options for it - validated independently, with the reviewed bank as the fallback. **549/549 unit tests**,
+red-team **8/8**, `tsc`, `lint` and `build` green.
+
+### 2. What the model does that a bank cannot
+
+A bank can list the approved questions and the words that belong to each. It cannot decide *which question
+this person needs next*, and it cannot write four plain words for the question it just chose in the
+person's own register. Both of those are now the model's, and neither is a card field: the question's
+wording still comes from `questionBank.ts` (the model returns an **id**), and the options are suggestions
+a person taps - exactly the interaction the reviewed vocabulary already had.
+
+The founder's own card is the case in point. *"I feel something around my shoulder. It's tight. I don't
+know how to describe it."* Under the old build, the next question was question one of three, whoever the
+person was. Under this build the guide is handed that description, the bank, and an empty `asked` list -
+and it chooses.
+
+### 3. Where it lives
+
+| file | change |
+|---|---|
+| `src/lib/guide.ts` | **new** - the guided layer: the instruction, the prompt, the strict reply schema, the independent validation (`guideFromReply`), the choices (`guideChoicesFor`), and the reviewed fallback (`fallbackGuide`) |
+| `src/lib/baseten.ts` | `basetenGuidePayloadFor` and the adapter's `guide()` - the same endpoint, transport, timeout and failure codes as the card request |
+| `src/lib/models.ts` | `ModelAdapter.guide`; the mock adapter answers with the **reviewed sequence's** next question and its own reviewed words, so mock mode is byte-for-byte what it was; the unavailable adapter throws, so a missing key falls back |
+| `src/lib/interview.ts` | the `asked` record (validated as untrusted input), `guidedTurn`, and the asking result's `options`/`source`; the question's text always comes from `questionById` |
+| `src/lib/draftGuard.ts` | `modelTextCarriesProhibited` exported, so the options get the **same** check a card's model-worded fields get rather than a second copy of the lists |
+| `src/lib/interviewFlow.ts`, `src/app/api/interview/route.ts` | the client carries `asked` and reads `options`; the route's asking body carries them |
+| `src/components/InterviewChat.tsx` | the helper shows the route's words when it sent any, and the question's own reviewed vocabulary otherwise |
+| `src/lib/guide.test.ts` | **new** - 11 tests: valid reply, invalid, malformed, extra key, repeated id, already-asked id, prohibited option, too few options, guide failure, no record, and the two-session adaptivity proof |
+| `docs/mvp/ISSUES-AND-BLOCKERS.md` | the `ISS-26` row and section 9 |
+| `BUILD-REPORT.md` | this entry |
+
+
 
 
 

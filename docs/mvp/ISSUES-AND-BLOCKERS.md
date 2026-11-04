@@ -35,6 +35,51 @@ owner can decide in one pass.
 | `ISS-23` | **P1** | The vocabulary helper showed one list on every question, and the words of "I don't know" were shown as chosen vocabulary | Card credibility, and whether the helper helps at all | **RESOLVED 2026-11-04** — the group follows the question; the comparison question offers the bank's own phrases; the words of not knowing leave `quality_words` |
 | `ISS-24` | **P1** | Editing the answers or changing the region saved a **second** journal entry for one check-in (four rows for one check-in were measured) | The journal's credibility: the count is the product's only history | **RESOLVED 2026-11-04** — a rebuild updates the card and its session in place; the ids travel with the session that survives the remount; a new check-in still inserts |
 | `ISS-25` | **P0** | A saved card was a dead end: the detail page offered "Back to journal" and nothing else, so a person could not correct their own words or the region — and the interview required words on every question, which is how "Don't know how to describe it" became a card's own sentence | The core promise: the card is the product's output, and a person who cannot revise it does not own it | **RESOLVED 2026-11-04** — the card's page edits the person's sentence and the region in place through the update path; the interview accepts "not sure" without inventing a word |
+| `ISS-26` | **P0** | The interview asked the same three reviewed questions in the same order whoever the person was, so the product felt like word selection rather than guided help — and Meta's model was used only to word the finished card | The hackathon claim and the promise: "SomaMap helps you find them" needs the model to help *find* language, not just to file it | **RESOLVED 2026-11-04** — the model now chooses the next reviewed question from the person's own words and offers three or four descriptive options for it, validated independently, with the reviewed bank as the fallback |
+
+---
+
+## 9. `ISS-26` — the interview did not adapt, so the model's contribution was invisible (P0, fixed 2026-11-04)
+
+**Reported by the founder**, honestly: the saved-card editing works; the product still feels like word
+selection rather than guided help; and Meta's models are not yet doing anything a static vocabulary bank
+could not.
+
+- **Root cause.** The model had exactly one job (`ISS-18`/Phase 2F): word the finished card from the
+  person's own words. The interview itself was fixed - `interviewFixture.question_ids`, three reviewed
+  questions in a constant order - and each question offered the vocabulary its own wording names
+  (`ISS-23`). So a person who wrote *"I feel something around my shoulder. It's tight. I don't know how to
+  describe it."* was asked the same questions in the same order as someone who wrote something entirely
+  different. Nothing in the product looked at what they had said until the card was being built.
+- **What the model can do that a bank cannot.** Choose. A bank can list the approved questions; it cannot
+  decide *which one this person needs next*, and it cannot write four plain words for the question it just
+  chose in the person's own register. That is the whole of the change: the model is now asked, on every
+  asking turn, for a question id **from the reviewed bank** and three or four descriptive options for it.
+- **Why that stays inside the iron rules.** The reply carries an *id*, and the wording comes from
+  `questionBank.ts` - so the model cannot invent, reword or append a question (rule 2 holds
+  structurally). The options are suggestions the person taps; a word joins their answer only when they
+  tap it, exactly as the reviewed vocabulary already worked. Every reply is validated independently of
+  what the model claims: a bank id this session has not asked, options that are short, plain, distinct and
+  free of the prohibited shapes a card's model-worded fields are already checked against. Anything else is
+  replaced by the reviewed fallback - the sequence's own next question and that question's own reviewed
+  words - so a bad reply costs the person nothing.
+- **How the interaction adapts.** The client sends the ids it has been asked (`asked`), the server hands
+  the guide the bank minus those ids, and the chosen id comes back with the question. The next turn's
+  record includes it, so the same question cannot come round twice and the choice follows the answers. A
+  client that sends no record gets the reviewed sequence, which is what every earlier caller got.
+- **Evidence.** `npm run test:unit` — **549/549 pass**; `npm test` — red-team **8 PASS, 0 FAIL** (T5 scans
+  108 files, zero hits); `tsc`, `lint` and `build` green. New tests prove: a valid reply's question and
+  words are used, the wording is the bank's, an id outside the bank or already asked falls back, a
+  repeated/sentence/prohibited option is dropped rather than repaired, too few surviving options fall
+  back, a malformed or extra-keyed reply falls back whole, the guide is never called on the card turn, and
+  a client with no record gets the reviewed sequence. `guide.test.ts` also drives two sessions whose
+  descriptions differ and shows the two questions differing.
+- **Not verified.** No live model request was made: the mandate forbids paid provider calls without
+  explicit approval, so every test here runs against an injected adapter. The credential and the model id
+  were verified **read-only** against the provider's own model list (`GET /v1/models`, a metadata call):
+  HTTP 200, and `meta-models/muse-spark-open-1026` - the id this project already configures - is in it.
+  A live demonstration needs one approval and one request.
+
 
 ---
 

@@ -48,6 +48,17 @@ export type FlowAnswer = { questionId: string; text: string };
 export type FlowQuestion = { id: string; text: string };
 
 /**
+ * One word the person may borrow (`ISS-26`): what the guided turn offered, or the reviewed vocabulary for
+ * the question. The word and its plain explanation - nothing else travels, and nothing here is stored.
+ */
+export type FlowCandidate = { word: string; meaning: string };
+
+/** The candidates the route offered for the question now on screen, or none when it offered none. */
+export function currentOptions(state: InterviewFlowState): readonly FlowCandidate[] {
+  return state.phase === "asking" || state.phase === "submitting" ? (state.options ?? []) : [];
+}
+
+/**
  * A request body for the interview route.
  *
  * `regionLabel` is the one addition the accuracy fix made (Entry 42), and Phase 2H widened it: the
@@ -65,11 +76,18 @@ export type InterviewRequest = {
    * account of the sensation on the card. An empty string means the user wrote nothing.
    */
   description: string;
+  /**
+   * The question ids this session has been asked, in order (`ISS-26`), or absent when the client keeps no
+   * record. It is what lets the guided interview choose the next question: the server cannot derive a
+   * choice the model made, so the client's record travels with every turn and is validated as untrusted
+   * input (bank ids only, each at most once, lined up with the answers).
+   */
+  asked?: readonly string[];
 };
 
 /** What the route answered, once parsed. Anything this build does not know is `unexpected`. */
 export type InterviewResponse =
-  | { status: "asking"; question: FlowQuestion }
+  | { status: "asking"; question: FlowQuestion; options: readonly FlowCandidate[] }
   | { status: "complete"; card: unknown; usedFallback: boolean }
   | { status: "crisis" }
   | { status: "unexpected"; detail: string };
@@ -92,8 +110,8 @@ export type InterviewResponse =
  */
 export type InterviewFlowState =
   | { phase: "loading"; answers: readonly FlowAnswer[] }
-  | { phase: "asking"; question: FlowQuestion; answers: readonly FlowAnswer[]; asked: readonly FlowQuestion[] }
-  | { phase: "submitting"; question: FlowQuestion; answers: readonly FlowAnswer[]; asked: readonly FlowQuestion[] }
+  | { phase: "asking"; question: FlowQuestion; options?: readonly FlowCandidate[]; answers: readonly FlowAnswer[]; asked: readonly FlowQuestion[] }
+  | { phase: "submitting"; question: FlowQuestion; options?: readonly FlowCandidate[]; answers: readonly FlowAnswer[]; asked: readonly FlowQuestion[] }
   | {
       phase: "complete";
       card: unknown;
@@ -113,7 +131,10 @@ export const EMPTY_INTERVIEW_STATE: InterviewFlowState = { phase: "loading", ans
  * with question one.
  */
 export function firstRequest(regionLabel: string, description: string): InterviewRequest {
-  return { answers: [], regionLabel, description };
+  // An empty `asked` list is what invites the guide to choose the first question: nothing has been asked,
+  // so every reviewed question is still available. Without the list the server falls back to the reviewed
+  // sequence, which is what every caller did before `ISS-26`.
+  return { answers: [], regionLabel, description, asked: [] };
 }
 
 /** The question now on screen, or null when there is none. */
@@ -158,7 +179,7 @@ export function answerRequest(
 ): InterviewRequest | null {
   if (state.phase !== "asking" && state.phase !== "submitting") return null;
 
-  return { answers: state.answers, text, regionLabel, description };
+  return { answers: state.answers, text, regionLabel, description, asked: askedOf(state).map((asked) => asked.id) };
 }
 
 /**
@@ -175,7 +196,7 @@ export function answersWith(state: InterviewFlowState, text: string): readonly F
 /** The same state, marked as waiting on the route. */
 export function asInFlight(state: InterviewFlowState): InterviewFlowState {
   return state.phase === "asking" || state.phase === "submitting"
-    ? { phase: "submitting", question: state.question, answers: state.answers, asked: state.asked }
+    ? { phase: "submitting", question: state.question, options: state.options, answers: state.answers, asked: state.asked }
     : { phase: "loading", answers: [] };
 }
 
@@ -227,6 +248,31 @@ function readQuestion(value: unknown): FlowQuestion | null {
   return { id, text };
 }
 
+/** The candidates the route offered, or none when they are not readable.
+ *
+ * A small array of word-and-meaning pairs, and nothing else: anything else in the payload is dropped
+ * rather than rendered, and a missing or malformed list simply leaves the screen with the reviewed
+ * vocabulary for the question (`ISS-23`), which is what it showed before the guide existed.
+ */
+function readOptions(value: unknown): readonly FlowCandidate[] {
+  if (!Array.isArray(value)) return [];
+
+  const candidates: FlowCandidate[] = [];
+
+  for (const entry of value.slice(0, 4)) {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
+
+    const { word, meaning } = entry as { word?: unknown; meaning?: unknown };
+
+    if (typeof word !== "string" || typeof meaning !== "string") continue;
+    if (word.trim().length === 0 || meaning.trim().length === 0) continue;
+
+    candidates.push({ word: word.trim(), meaning: meaning.trim() });
+  }
+
+  return candidates;
+}
+
 /**
  * The route's answer, parsed and closed. Unknown statuses, missing questions and missing
  * cards are all `unexpected` - never a state that could render a card - so a changed or
@@ -237,7 +283,13 @@ export function parseResponse(payload: unknown): InterviewResponse {
     return { status: "unexpected", detail: "the answer was not an object" };
   }
 
-  const record = payload as { status?: unknown; question?: unknown; card?: unknown; usedFallback?: unknown };
+  const record = payload as {
+    status?: unknown;
+    question?: unknown;
+    options?: unknown;
+    card?: unknown;
+    usedFallback?: unknown;
+  };
 
   if (record.status === "crisis") return { status: "crisis" };
 
@@ -246,7 +298,7 @@ export function parseResponse(payload: unknown): InterviewResponse {
 
     return question === null
       ? { status: "unexpected", detail: "the question was not readable" }
-      : { status: "asking", question };
+      : { status: "asking", question, options: readOptions(record.options) };
   }
 
   if (record.status === "complete") {
@@ -293,6 +345,7 @@ export function afterResponse(state: InterviewFlowState, payload: unknown): Inte
       return {
         phase: "asking",
         question: response.question,
+        options: response.options,
         answers: answersOf(state),
         asked: withAsked(asked, response.question),
       };
@@ -401,10 +454,17 @@ export function replayPlan(
     const answer = draft.answers[index];
 
     return {
-      request: { answers: draft.answers.slice(0, index), text: answer.text, regionLabel, description },
+      request: {
+        answers: draft.answers.slice(0, index),
+        text: answer.text,
+        regionLabel,
+        description,
+        asked: draft.asked.slice(0, index + 1).map((question) => question.id),
+      },
       previous: {
         phase: "asking",
         question,
+        options: [],
         answers: draft.answers.slice(0, index + 1),
         asked: draft.asked,
       },

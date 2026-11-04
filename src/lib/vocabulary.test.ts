@@ -386,7 +386,7 @@ describe("the interview's states stay honest", () => {
     );
 
     assert.equal([...chat.matchAll(/<VocabularyHelper/g)].length, 2, "the interview and the revision both offer it");
-    assert.ok(chat.includes("candidates={vocabularyFor(question.id)}"), "the asking screen uses the question it was sent");
+    assert.ok(chat.includes("candidates={candidates}"), "the asking screen uses the question it was sent");
     assert.ok(chat.includes("candidates={vocabularyFor(editing.id)}"), "the revision uses the revision's own question");
     assert.ok(chat.includes("value={revisionAnswer(draft)}"), "and edits that revision's answer, not the interview's");
   });

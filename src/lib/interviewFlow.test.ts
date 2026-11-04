@@ -85,10 +85,16 @@ async function routeAnswer(body: unknown): Promise<unknown> {
 
 describe("the request bodies the client builds", () => {
   it("asks the first question with the empty answer list, no text, the region, and the description", () => {
-    assert.deepEqual(firstRequest("shoulder", ""), { answers: [], regionLabel: "shoulder", description: "" });
+    assert.deepEqual(firstRequest("shoulder", ""), {
+      answers: [],
+      regionLabel: "shoulder",
+      description: "",
+      asked: [],
+    });
     // No region selected travels as an empty label: the client never guesses one. An empty description
-    // travels too, so the wire shape is the same whether the user wrote anything or not.
-    assert.deepEqual(firstRequest("", ""), { answers: [], regionLabel: "", description: "" });
+    // travels too, so the wire shape is the same whether the user wrote anything or not. The empty
+    // `asked` list is what invites the guided turn to choose the first question (`ISS-26`).
+    assert.deepEqual(firstRequest("", ""), { answers: [], regionLabel: "", description: "", asked: [] });
 
     // Phase 2H: the location is the person's own words, so a label the fixed map does not know travels
     // exactly as a map label does - on the first request and on every one after it.
@@ -96,12 +102,14 @@ describe("the request bodies the client builds", () => {
       answers: [],
       regionLabel: "left wrist",
       description: "",
+      asked: [],
     });
     // The description the user wrote first travels verbatim (`ISS-16/A`).
     assert.deepEqual(firstRequest("chest", "a heavy band across my chest"), {
       answers: [],
       regionLabel: "chest",
       description: "a heavy band across my chest",
+      asked: [],
     });
   });
 
@@ -118,6 +126,9 @@ describe("the request bodies the client builds", () => {
       text: ORDINARY[1],
       regionLabel: "shoulder",
       description: "a heavy band",
+      // The record of what this session was asked (`ISS-26`): the questions the flow state holds, which
+      // is what lets the route hand the choice of the next question to the guide.
+      asked: ["Q1"],
     });
   });
 

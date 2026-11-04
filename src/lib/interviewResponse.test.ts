@@ -27,7 +27,14 @@ describe("the interview route's answer mapping", () => {
 
     assert.deepEqual(answerFor({ status: "asking", question: { id: "Q2", text: "where is it?" }, answers: [] }), {
       status: 200,
-      body: { status: "asking", question: { id: "Q2", text: "where is it?" } },
+      body: {
+        status: "asking",
+        question: { id: "Q2", text: "where is it?" },
+        // The guided turn's words travel with the question (`ISS-26`); a caller that offered none sends
+        // an empty list rather than nothing, so the client has one shape to read.
+        options: [],
+        source: "fallback",
+      },
     });
 
     assert.deepEqual(answerFor({ status: "complete", card: CARD, usedFallback: true, answers: [] }), {

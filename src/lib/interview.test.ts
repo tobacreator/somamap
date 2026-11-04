@@ -229,6 +229,9 @@ describe("the crisis shield is the language, not the provider (Phase 2C)", () =>
     async interview() {
       throw new Error("provider down");
     },
+    async guide() {
+      throw new Error("provider down");
+    },
   };
 
   it("screens the description, the words just submitted, and every stored answer", async () => {
@@ -300,6 +303,10 @@ describe("external processing is acknowledged before anything is sent (Phase 2D)
           calls.push("interview");
           return { ...interviewFixture.draft_card };
         },
+        async guide() {
+          calls.push("guide");
+          return { question_id: "Q99", options: [] };
+        },
       },
     };
   }
@@ -333,7 +340,7 @@ describe("external processing is acknowledged before anything is sent (Phase 2D)
     assert.deepEqual(
       asking.calls,
       ["questionSequence", "questionSequence"],
-      "once to label the answer with the question it answered, once for the question now on screen",
+      "once to label the answer with the question it answered, once for the question now on screen - and no guide, because this caller sends no record of what it was asked",
     );
 
     // A fresh recorder, so the counts below are this session's alone.
@@ -344,7 +351,7 @@ describe("external processing is acknowledged before anything is sent (Phase 2D)
     assert.deepEqual(
       finishing.calls,
       ["questionSequence", "questionSequence", "questionSequence", "interview"],
-      "the sequence is checked once per answer, and the card is worded once",
+      "the sequence is checked once per answer, and the card is worded once - no question is chosen, because this caller sends no record of what it was asked",
     );
   });
 

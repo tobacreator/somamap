@@ -165,6 +165,21 @@ function metaphorCarriesProhibited(candidate: string, source: FidelitySource): b
 }
 
 /**
+ * Whether a piece of **model-written** text carries prohibited language.
+ *
+ * Exported for the guided interview (`ISS-26`): the model now writes short descriptive options as well
+ * as a card, and they need exactly the check a card's model-worded fields get. Reusing this function
+ * rather than restating the lists is the same argument the phrases above make about `CAUSAL_PHRASES`:
+ * two copies of a compliance list drift, and the one that drifts is the one nobody reads.
+ *
+ * It is only ever called on text a model wrote. A user's own words are exempt by construction - they
+ * are never passed here - which is why "rest" as a word the person typed is untouched.
+ */
+export function modelTextCarriesProhibited(text: string): boolean {
+  return prohibitedIn(text) !== null;
+}
+
+/**
  * The prohibited language in a model's draft, as the **names of the fields that carry it** - never the
  * text.
  *

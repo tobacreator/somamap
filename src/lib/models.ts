@@ -10,6 +10,7 @@ import { prohibitedLanguageIn } from "./draftGuard.ts";
 import { groundModelDraft, mockCardFrom, withFallbackFidelity } from "./cardFidelity.ts";
 import { interviewFixture } from "./fixtures.ts";
 import { FALLBACK_CARD, sensationCardSchema, type SensationCard } from "./schema.ts";
+import { vocabularyFor } from "./vocabulary.ts";
 
 /**
  * The model boundary - blueprint Chapter 4.3 (mock mode) and Table 10 (the fail-closed
@@ -94,6 +95,18 @@ export type ModelAdapter = {
    * caller has two shapes to handle.
    */
   interview(snapshot: ModelSnapshot): Promise<unknown>;
+  /**
+   * The guided turn (`ISS-26`): which reviewed question to ask next, and the words to offer with it.
+   *
+   * `asked` is the ids this session has already asked and `choices` the ids still available; the reply
+   * is **unvalidated** model output, exactly like `interview`'s, and `guideFromReply` is the one door
+   * that judges it. Asynchronous for the same reason as `interview`: the only honest way to reach a
+   * provider is a network call, and mock mode resolves immediately.
+   *
+   * It is a member of the same adapter rather than a second abstraction: one provider, one place where
+   * a request is shaped, and one place where a failure is thrown.
+   */
+  guide(snapshot: ModelSnapshot, asked: readonly string[], choices: readonly string[]): Promise<unknown>;
 };
 
 /** Raised when a call cannot be made at all, so the caller can fail closed. */
@@ -123,6 +136,24 @@ export const mockAdapter: ModelAdapter = {
   async interview(snapshot) {
     return mockCardFrom(snapshot);
   },
+  /**
+   * Mock mode's guided turn (`ISS-26`): the reviewed sequence's next question, with that question's own
+   * reviewed vocabulary.
+   *
+   * This is deliberately the *fallback* rather than a canned "model" answer: mock mode has no model, and
+   * pretending otherwise would make a demonstration of the guided interview a demonstration of a
+   * recording. What it does reproduce exactly is the behaviour this build had before the guide existed -
+   * the same ids in the same order, the same words per question - so mock mode, the visual harness and
+   * the red-team rows keep testing what they tested yesterday.
+   */
+  async guide(_snapshot, asked) {
+    const next = interviewFixture.question_ids.find((id) => !asked.includes(id));
+
+    return {
+      question_id: next ?? interviewFixture.question_ids[interviewFixture.question_ids.length - 1],
+      options: vocabularyFor(next ?? "").map((candidate) => ({ word: candidate.word, meaning: candidate.meaning })),
+    };
+  },
 };
 
 /**
@@ -139,6 +170,15 @@ export const unavailableAdapter: ModelAdapter = {
     return interviewFixture.question_ids;
   },
   async interview() {
+    throw new ModelUnavailableError();
+  },
+  /**
+   * The guided turn with no provider (`ISS-26`): it throws, exactly as `interview` does, and the caller
+   * replaces it with the reviewed sequence's own next question and that question's own reviewed words.
+   * Live mode without a key therefore asks the same questions in the same order it always did, with the
+   * same vocabulary - a provider that is missing costs the person nothing.
+   */
+  async guide() {
     throw new ModelUnavailableError();
   },
 };

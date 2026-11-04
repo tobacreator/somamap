@@ -1,15 +1,18 @@
 import { isCrisisLanguage } from "./crisis.ts";
 import { isAcknowledgement } from "./externalProcessing.ts";
 import { userLocationFrom } from "./cardFidelity.ts";
+import { fallbackGuide, guideChoicesFor, guideFromReply, type GuideOutcome } from "./guide.ts";
 import { QUESTION_BANK, questionById } from "./questionBank.ts";
 import {
   wordCard,
   type ModelAdapter,
   type ModelAnswer,
   type ModelMode,
+  type ModelSnapshot,
   type ViolationLogger,
 } from "./models.ts";
 import type { SensationCard } from "./schema.ts";
+import type { VocabularyCandidate } from "./vocabulary.ts";
 
 /**
  * The interview state machine - blueprint Table 10 stage 2 and Chapter 5.3.
@@ -50,7 +53,15 @@ export type InterviewQuestion = { id: string; text: string };
 export type InterviewStepResult =
   | { status: "invalid"; reason: string }
   | { status: "crisis" }
-  | { status: "asking"; question: InterviewQuestion; answers: readonly InterviewAnswer[] }
+  | {
+      status: "asking";
+      question: InterviewQuestion;
+      /** The words the guided turn offers for this question (`ISS-26`); empty when it offered none. */
+      options?: readonly VocabularyCandidate[];
+      /** Whether the guide chose this question or the reviewed sequence did. */
+      source?: "model" | "fallback";
+      answers: readonly InterviewAnswer[];
+    }
   | { status: "complete"; card: SensationCard; usedFallback: boolean; answers: readonly InterviewAnswer[] };
 
 /**
@@ -84,6 +95,12 @@ type ParsedTurn =
        * adapter method is reached.
        */
       acknowledgedProvider: string | null;
+      /**
+       * The question ids the client says it has been asked, in order (`ISS-26`), or null when the client
+       * keeps no such record. Validated as untrusted input: bank ids only, each at most once, and lined
+       * up with the answers.
+       */
+      asked: readonly string[] | null;
     }
   | { ok: false; reason: string };
 
@@ -99,6 +116,7 @@ function parseTurn(body: unknown): ParsedTurn {
     regionLabel?: unknown;
     description?: unknown;
     acknowledgedProvider?: unknown;
+    asked?: unknown;
   };
   const answersRaw = raw.answers === undefined ? [] : raw.answers;
 
@@ -121,6 +139,26 @@ function parseTurn(body: unknown): ParsedTurn {
     answers.push({ questionId, text });
   }
 
+  /**
+   * The ids this session has been asked, in order, when the client keeps that record (`ISS-26`).
+   *
+   * The guided interview chooses its next question from the reviewed bank, so the order is no longer a
+   * constant the server can derive - it is the client's own record of what the route answered with. That
+   * makes the record **untrusted input**, and it is treated as such: it may only name reviewed bank ids,
+   * each at most once, and it must line up with the answers position by position. A client that sends no
+   * record at all gets the reviewed sequence, which is exactly what every earlier build did.
+   */
+  const askedRaw = raw.asked === undefined || raw.asked === null ? null : raw.asked;
+
+  if (askedRaw !== null) {
+    if (!Array.isArray(askedRaw)) return { ok: false, reason: "asked is not an array" };
+    if (askedRaw.length > QUESTIONS_PER_SESSION) return { ok: false, reason: "too many questions asked" };
+
+    for (const id of askedRaw) {
+      if (typeof id !== "string") return { ok: false, reason: "an asked question id is not a string" };
+    }
+  }
+
   if (raw.text !== undefined && raw.text !== null && typeof raw.text !== "string") {
     return { ok: false, reason: "text is not a string" };
   }
@@ -136,6 +174,7 @@ function parseTurn(body: unknown): ParsedTurn {
   return {
     ok: true,
     answers,
+    asked: askedRaw === null ? null : (askedRaw as readonly string[]),
     text: typeof raw.text === "string" ? raw.text : null,
     regionLabel: typeof raw.regionLabel === "string" ? raw.regionLabel : null,
     description: typeof raw.description === "string" ? raw.description : null,
@@ -165,9 +204,53 @@ function userAuthoredText(parsed: Extract<ParsedTurn, { ok: true }>): readonly s
   return [...alreadyGiven, ...justSubmitted, ...writtenFirst, ...chosenLocation];
 }
 
-/** The answers must be the ones this session actually asked for, in order. */
-function answersFollowTheSequence(answers: readonly InterviewAnswer[], adapter: ModelAdapter): boolean {
-  return answers.every((answer, index) => answer.questionId === questionForStep(index, adapter).id);
+/**
+ * Whether the answers are the ones this session actually asked for.
+ *
+ * Two shapes, one rule. When the client keeps its own record of the questions it was asked (`ISS-26`),
+ * that record is judged as untrusted input: every id must be a **reviewed bank id**, no id may be asked
+ * twice, and the answers must line up with it position by position. When the client keeps no record, the
+ * reviewed sequence decides, exactly as it did before the guided interview existed - which is what keeps
+ * every earlier caller, every red-team row and mock mode on the same behaviour they were written for.
+ */
+function answersFollowTheSequence(
+  answers: readonly InterviewAnswer[],
+  adapter: ModelAdapter,
+  asked: readonly string[] | null,
+): boolean {
+  if (asked === null) {
+    return answers.every((answer, index) => answer.questionId === questionForStep(index, adapter).id);
+  }
+
+  if (asked.length > QUESTIONS_PER_SESSION) return false;
+  if (new Set(asked).size !== asked.length) return false;
+  if (asked.some((id) => questionById(id) === null)) return false;
+
+  return answers.every((answer, index) => answer.questionId === asked[index]);
+}
+
+/**
+ * The guided turn (`ISS-26`), or the reviewed fallback when there is no guide to be had.
+ *
+ * A provider that is missing, slow, refusing, malformed, or that answers with a question id outside the
+ * bank or options that are not plain descriptions costs the person nothing: the reviewed sequence's own
+ * next question and that question's own reviewed vocabulary stand in. The failure is not reported to the
+ * user - the fallback is a complete, compliant turn - and the outcome says which of the two it was, so
+ * the interface never has to guess.
+ */
+async function guidedTurn(
+  deps: InterviewDeps,
+  snapshot: ModelSnapshot,
+  asked: readonly string[],
+  fallbackQuestionId: string,
+): Promise<GuideOutcome> {
+  try {
+    const reply = await deps.adapter.guide(snapshot, asked, guideChoicesFor(asked));
+
+    return guideFromReply(reply, asked, fallbackQuestionId);
+  } catch {
+    return fallbackGuide(fallbackQuestionId);
+  }
 }
 
 /**
@@ -228,7 +311,7 @@ export async function interviewStep(body: unknown, deps: InterviewDeps): Promise
     };
   }
 
-  if (!answersFollowTheSequence(parsed.answers, deps.adapter)) {
+  if (!answersFollowTheSequence(parsed.answers, deps.adapter, parsed.asked)) {
     return { status: "invalid", reason: "the answers do not match the questions this session asked" };
   }
 
@@ -237,11 +320,33 @@ export async function interviewStep(body: unknown, deps: InterviewDeps): Promise
     return { status: "invalid", reason: "the session already has all of its answers" };
   }
 
+  /**
+   * The question being answered: the client's own record of what it was asked (`ISS-26`), or the
+   * reviewed sequence's step when the client keeps no record.
+   *
+   * An adaptive session must name its current question, because the server cannot derive a choice the
+   * model made: without the id the answer could not be attributed to a question at all, and the turn is
+   * refused rather than guessed at.
+   */
+  const currentQuestionId =
+    parsed.text === null
+      ? undefined
+      : parsed.asked === null
+        ? questionForStep(parsed.answers.length, deps.adapter).id
+        : parsed.asked[parsed.answers.length];
+
+  // A turn that carries words must name the question they answer: an adaptive session's current question
+  // is the model's choice, and the server cannot derive it. A turn that only asks (the first request)
+  // carries no words and needs no id.
+  if (parsed.text !== null && currentQuestionId === undefined) {
+    return { status: "invalid", reason: "the request does not name the question being answered" };
+  }
+
   const answers: InterviewAnswer[] = [...parsed.answers];
 
-  if (parsed.text !== null) {
+  if (parsed.text !== null && currentQuestionId !== undefined) {
     // The words become an answer and nothing more. No instruction inside them is acted on.
-    answers.push({ questionId: questionForStep(answers.length, deps.adapter).id, text: parsed.text });
+    answers.push({ questionId: currentQuestionId, text: parsed.text });
   }
 
   const description = parsed.description ?? "";
@@ -258,5 +363,28 @@ export async function interviewStep(body: unknown, deps: InterviewDeps): Promise
     return { status: "complete", card: worded.card, usedFallback: worded.usedFallback, answers };
   }
 
-  return { status: "asking", question: questionForStep(answers.length, deps.adapter), answers };
+  /**
+   * The next question, chosen by the guide when the client keeps a record of what it has been asked, and
+   * by the reviewed sequence otherwise. The wording always comes from the bank - `questionById` - so the
+   * question a person reads is reviewed copy whichever path chose it.
+   */
+  const fallbackQuestionId = questionForStep(answers.length, deps.adapter).id;
+  const guide =
+    parsed.asked === null
+      ? fallbackGuide(fallbackQuestionId)
+      : await guidedTurn(
+          deps,
+          { answers, regionLabel: userLocationFrom(parsed.regionLabel), description },
+          parsed.asked,
+          fallbackQuestionId,
+        );
+  const question = questionById(guide.questionId) ?? questionForStep(answers.length, deps.adapter);
+
+  return {
+    status: "asking",
+    question: { id: question.id, text: question.text },
+    options: guide.options,
+    source: guide.source,
+    answers,
+  };
 }
