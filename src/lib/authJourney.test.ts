@@ -126,7 +126,7 @@ describe("a card finished without a session", () => {
 
   it("makes no save request, and says why instead", () => {
     const decision = chat.indexOf("saveIntentFor(canSave)");
-    const write = chat.indexOf("postJournalCard(card, view)");
+    const write = chat.indexOf("postJournalCard(card, view, identity.current)");
 
     assert.ok(decision !== -1, "the intent must be decided");
     assert.ok(write !== -1, "the write must still exist for a signed-in card");

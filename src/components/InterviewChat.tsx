@@ -68,7 +68,7 @@ import {
   type RevisionDraft,
 } from "@/lib/interviewFlow";
 import { withAcknowledgement, type ProcessingMode } from "@/lib/externalProcessing";
-import { savedCardFromPayload } from "@/lib/journal";
+import { savedCardFromPayload, type CardIdentity } from "@/lib/journal";
 import { saveIntentFor } from "@/lib/journalSave";
 import type { BodyView } from "@/lib/regions";
 import type { SensationCard } from "@/lib/schema";
@@ -154,22 +154,43 @@ async function postInterview(body: InterviewRequest, mode: ProcessingMode): Prom
 /**
  * The journal write, once per completed card.
  *
- * The body carries the card and the map view, and nothing else: no answer list, no acknowledgement, no
- * mode. The card is reduced to the user's own values before it is sent (`savedCardFromPayload`), so a
- * card the renderer presents as unanswered is stored as empty rather than as the reviewed fallback's
- * placeholder text, and a fallback card's model-worded fields are dropped.
+ * The body carries the card, the map view, and - when this card is already in the journal - the two ids
+ * that name it (`ISS-24`). Nothing else: no answer list, no acknowledgement, no mode. The card is reduced
+ * to the user's own values before it is sent (`savedCardFromPayload`), so a card the renderer presents as
+ * unanswered is stored as empty rather than as the reviewed fallback's placeholder text, and a fallback
+ * card's model-worded fields are dropped.
+ *
+ * The ids are what make a rebuild an update rather than a second entry: with them the route updates the
+ * rows this card already occupies, and without them it inserts a new check-in. The reply's ids are handed
+ * back so the next write can address the same row - a reply with no ids is treated as a failure, because a
+ * card the screen cannot address again would duplicate itself the next time it is rebuilt.
  *
  * A refusal or a transport failure is a failure: nothing here reports success it did not get.
  */
-async function postJournalCard(card: SensationCard, view: BodyView): Promise<{ ok: boolean }> {
+async function postJournalCard(
+  card: SensationCard,
+  view: BodyView,
+  identity: CardIdentity | null,
+): Promise<{ ok: true; identity: CardIdentity } | { ok: false }> {
   try {
     const response = await fetch(JOURNAL_ENDPOINT, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ card, view }),
+      body: JSON.stringify(
+        identity === null ? { card, view } : { card, view, cardId: identity.cardId, sessionId: identity.sessionId },
+      ),
     });
 
-    return { ok: response.status === 201 };
+    // 201 when the route created the card, 200 when it updated one: either way a write that landed.
+    if (response.status !== 200 && response.status !== 201) return { ok: false };
+
+    const payload = (await response.json()) as { id?: unknown; sessionId?: unknown };
+    const cardId = typeof payload.id === "string" ? payload.id : "";
+    const sessionId = typeof payload.sessionId === "string" ? payload.sessionId : "";
+
+    if (cardId.length === 0 || sessionId.length === 0) return { ok: false };
+
+    return { ok: true, identity: { cardId, sessionId } };
   } catch {
     return { ok: false };
   }
@@ -276,6 +297,18 @@ type InterviewChatProps = {
   resume?: InterviewSession | null;
   /** Reports the session a card was worded from, so a later region change can rebuild it. */
   onSession?: (session: InterviewSession | null) => void;
+  /**
+   * The card this screen is rebuilding, when it is rebuilding one (`ISS-24`), or null when this is a new
+   * check-in. It is held by the check-in flow rather than here for the same reason the session is: this
+   * screen is unmounted when the user returns to the map, so anything that has to survive that round trip
+   * lives above it. Null means "insert a new card"; a pair of ids means "update this one".
+   */
+  savedIdentity?: CardIdentity | null;
+  /**
+   * Reports the identity of the card that was just written, so the next rebuild updates that card instead
+   * of adding another entry to the journal. Called only after a write that landed.
+   */
+  onSaved?: (identity: CardIdentity) => void;
   /** Confirmed restart: the check-in flow clears the session, the region and the words, and returns. */
   onStartNew: () => void;
 };
@@ -289,6 +322,8 @@ export default function InterviewChat({
   onBack,
   resume = null,
   onSession,
+  savedIdentity = null,
+  onSaved,
   onStartNew,
 }: InterviewChatProps) {
   const [flow, setFlow] = useState<InterviewFlowState>(EMPTY_INTERVIEW_STATE);
@@ -418,18 +453,26 @@ export default function InterviewChat({
   }, [flow, onSession]);
 
   /**
-   * Saving the card, once.
+   * Saving the card, once per completed card.
    *
    * The guard is the completed state object itself, held in a ref: a re-render, a second effect run or a
-   * repeated completion reports the *same* object, so the write happens exactly once per finished card.
-   * Nothing is saved before a card exists, and nothing is saved that the strict schema refuses - a
-   * payload that is not a five-field card is reported as a failed save rather than written as something
-   * else.
+   * repeated completion of the *same* object reports the same state, so the write happens exactly once per
+   * finished card. Nothing is saved before a card exists, and nothing is saved that the strict schema
+   * refuses - a payload that is not a five-field card is reported as a failed save rather than written as
+   * something else.
+   *
+   * `ISS-24`: a finished card can be re-worded - `Edit my answers` or `Change the region` - and a rebuild
+   * is not a second check-in. The identity of the card this screen is rebuilding is seeded from the prop
+   * (the check-in flow holds it, so it survives the unmount the region change causes) and updated from
+   * every reply, which is what makes the *next* completion update that row instead of inserting another.
+   * The ref is read at the moment of the write rather than captured, so two completions inside one mount
+   * both address the same card.
    *
    * The screen says which of the three outcomes happened. A failed write is never silent: the card stays
    * on screen, and the user is told it was not saved.
    */
   const saved = useRef<InterviewFlowState | null>(null);
+  const identity = useRef<CardIdentity | null>(savedIdentity);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed" | "signin-required">("idle");
   /** What the screen says when the card was not written: the policy's own wording, never retyped here. */
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
@@ -468,11 +511,18 @@ export default function InterviewChat({
 
       setSaveState("saving");
 
-      const outcome = await postJournalCard(card, view);
+      const outcome = await postJournalCard(card, view, identity.current);
+
+      // The ids of the row this card now occupies: kept here for a further completion in this mount, and
+      // reported upward so a rebuild after the next unmount updates the same card (`ISS-24`).
+      if (outcome.ok) {
+        identity.current = outcome.identity;
+        onSaved?.(outcome.identity);
+      }
 
       setSaveState(outcome.ok ? "saved" : "failed");
     })();
-  }, [flow, view, canSave]);
+  }, [flow, view, canSave, onSaved]);
 
   const question = currentQuestion(flow);
   const busy = flow.phase === "submitting";

@@ -12532,3 +12532,157 @@ the third it should offer "a tight knot" / "a warm bath" / "a heavy blanket" / "
 one of those should fill the card's `It feels like` row with that phrase verbatim, while a session that
 answers without a comparison still shows "Not answered yet".
 
+## Entry 55 - 2026-11-04 10:44 (+01:00) - One check-in, one journal entry: the rebuild updates the card it already has (`ISS-24`, IMPLEMENTED)
+
+### 1. Task and boundaries
+
+Requested (the owner's brief of 2026-11-04, after manual Preview verification of `ISS-23`): manual testing
+had shown that editing the answers or changing the region saved a **second** journal entry for one
+check-in - four rows for one check-in, the journal count moving from 2 to 6. Investigate first, report, and
+implement only after approval. The investigation was accepted, and this entry is the implementation.
+
+Authorised: `src/lib/journal.ts`, `src/lib/journalStore.ts`, `src/app/api/journal/route.ts`,
+`src/components/InterviewChat.tsx`, `src/components/CheckInFlow.tsx`, tests, the visual harness, and the
+docs. Owner decisions, all fixed before any code: a genuinely new check-in keeps inserting; a saved card's
+identity survives `Edit my answers` and `Change the region`; the identity lives with the state that
+survives the remount; `startNewCheckIn` clears it; no upsert as a shortcut; the four existing duplicate
+rows are left alone.
+
+**Outcome in one line:** a rebuild now updates the card and its session in place through an explicit
+`PATCH` path, a new check-in still inserts, and the client keeps the ids the first save returned - **515/515
+unit tests**, red-team **8/8**, `tsc`, `lint` and `build` green, and the harness's new `J5.rebuild` gate
+passing with its 43 failures exactly the documented pre-existing set.
+
+**Not done, deliberately:** no change to the five-field schema, the question bank, the contextual
+vocabulary (`ISS-23`), the crisis shield, consent, provider configuration, the migration or RLS, or any
+Vercel setting; no upsert; no deletion of the four existing rows; no production deployment.
+
+### 2. What was wrong, with the evidence
+
+- **The write fired per completion.** `InterviewChat.tsx` saved whenever the flow reached `complete`,
+  guarded by the completed state object in a ref. That guard is right for a repeat of the same completion
+  and blind to a new one - and a rebuild is a new one: "Change the region" unmounts the screen
+  (`CheckInFlow.tsx`), keeps the answers in `session`, and mounts the interview again with
+  `resume={session}`, where `replay` walks every answer back through the route into a fresh `complete`.
+  `Edit my answers` does the same.
+- **The store could only insert.** `saveJournalCard` posts a session row and then a card row; there is no
+  `PATCH`, `PUT`, `upsert` or `on_conflict` anywhere in `src/`, and the client sent `{ card, view }` with
+  no id - so the second completion could not have updated the first row even in principle. The route
+  returned the new card's id and the client discarded it.
+- **Measured, not inferred.** A read-only probe (a copy of the harness in `%TEMP%`, run signed out so
+  nothing was written) drove a check-in and two region-change rounds: 4 → 7 → 10 interview requests and
+  **1 → 2 → 3 completions**, the two `head` rounds sending byte-identical bodies. One round is one insert,
+  and a round that taps no new zone rebuilds the same card - which is how a check-in ends up with identical
+  pairs.
+
+### 3. Files changed
+
+| file | change |
+|---|---|
+| `src/lib/journal.ts` | `CardIdentity` - the card id and session id a saved card keeps, with the note that they say *which* row, never *whose* |
+| `src/lib/journalStore.ts` | `SaveJournalResult` now carries `sessionId`; `saveJournalCard` returns it; new `updateJournalCard` - the insert path's mirror, two `PATCH`es, ids validated first, a row that does not come back treated as a failure |
+| `src/app/api/journal/route.ts` | reads the optional `cardId`/`sessionId`, validates both as uuids (both or neither, else 400), dispatches to the update path or the insert path, returns both ids, 201 for a create and 200 for an update |
+| `src/components/InterviewChat.tsx` | `savedIdentity` prop + `onSaved` callback; the identity is held in a ref seeded from the prop and read at the moment of the write; the write sends the ids only when there are any; a reply without ids is a failure |
+| `src/components/CheckInFlow.tsx` | holds the identity beside the session, passes it down and reports it up, clears it in `startNewCheckIn` and on the crisis way back |
+| `src/lib/journalStore.test.ts` | the insert test now asserts both ids; a new `ISS-24` describe: in-place update, five fields only, no insert, no re-pointed session, a second update adds nothing, invalid ids refused without a request, a no-row update is a failure, refused writes are failures, an unreachable service is a failure |
+| `src/lib/journalIdentity.test.ts` | new: the wiring - the identity is seeded, read at the write, sent only for a rebuild, kept only on success; the flow holds it across the remount and clears it on a restart; the route validates, dispatches, and never reports a failed write as a save |
+| `src/lib/authJourney.test.ts`, `src/lib/vocabulary.test.ts` | two existing source-level assertions updated to the new call signature (`postJournalCard(card, view, identity.current)`) - the properties they assert are unchanged |
+| `tools/visual-harness/run.mjs` | `completionCount()`; `journeyRegionChange()` - a region-change round measured in requests; the new `J5.rebuild` gate; `J4.regionSent` now reads the check-in's own turns and says so |
+| `docs/mvp/ISSUES-AND-BLOCKERS.md` | the `ISS-24` row and section 7 |
+| `BUILD-REPORT.md` | this entry |
+
+### 4. The change, before and after
+
+Before - one write, and no way to address a row:
+
+```tsx
+const outcome = await postJournalCard(card, view);   // { card, view } - always an insert
+```
+
+After - the same write, carrying the identity when the card already exists:
+
+```tsx
+const identity = useRef<CardIdentity | null>(savedIdentity);
+const outcome = await postJournalCard(card, view, identity.current);
+if (outcome.ok) { identity.current = outcome.identity; onSaved?.(outcome.identity); }
+```
+
+and in the route, one dispatch on that identity:
+
+```ts
+const identity = cardId !== null && sessionId !== null && isCardId(cardId) && isCardId(sessionId) ? { cardId, sessionId } : null;
+if (claimsIdentity && identity === null) return NextResponse.json({ error: "invalid request" }, { status: 400 });
+const result = identity === null ? await saveJournalCard(...) : await updateJournalCard(..., identity);
+```
+
+`updateJournalCard` `PATCH`es `/rest/v1/sessions?id=eq.<sessionId>` with `{ region_label, view }` and then
+`/rest/v1/cards?id=eq.<cardId>` with the five content columns - the same order, the same allowlisted
+columns and the same failure rule as the insert path, and the session a card belongs to is never sent, so
+it can never be re-pointed.
+
+### 5. Evidence that nothing else moved
+
+- The five-field schema, the question bank, the contextual vocabulary, the crisis shield, the consent path,
+  the migration and the RLS policies are untouched; T1, T2, T3, T4 and T6 pass unchanged, and T5 now scans
+  103 files with zero hits.
+- The insert path is unchanged in behaviour: the same two `POST`s, the same columns, the same failures -
+  and its test now additionally asserts that both ids come back.
+- The card that travels on the update path is the same object the insert path sends
+  (`savedCardFromPayload` on both, after the strict schema), asserted field by field.
+- No upsert anywhere: the two paths are explicit, which is what keeps a broad write from reaching past the
+  schema or from touching a row the caller does not own.
+- Mock mode is still mock: no `MODEL_MODE`, no key read, no network in any test.
+
+### 6. Commands and results
+
+| command | exit | result |
+|---|---|---|
+| `npm run test:unit` | 0 | **515 tests / 120 suites, 515 pass, 0 fail** (22 new) |
+| `npm test` | 0 | unit suite exit 0; red-team **8 PASS, 0 FAIL, 0 NOT IMPLEMENTED** (T5: 103 files, zero hits) |
+| `npx tsc --noEmit` | 0 | clean |
+| `npm run lint` | 0 | 0 errors; the 2 warnings are the pre-existing unused variables in `tools/visual-harness/run.mjs` |
+| `npm run build` | 0 | 16/16 static pages, the same routes |
+| `node tools/visual-harness/run.mjs` | 1 | **187 passed, 43 failed of 230**. The new **`J5.rebuild` PASS**: "3 request(s), 1 completion, region [head, head, head], card names head". All 43 failures are the documented pre-existing set - `T1.zone44` 10, `T2.control44` 10 (`ISS-13`), `D1.firstScreen` 7, `D2.scrolling` 7, `D3.focus` 3 (`ISS-07`), `S4.side` 4, `N1.figure` 1, `N2.views` 1 (`ISS-09`). Every journey gate passes: `J1.card`, `J2.region`, `J3.fields`, `J4.regionSent`, `J5.rebuild`, `P1.line`, `P4.disclosure` (three times, including the rebuild round), `P5.acknowledged`, `P6.declined`, `P3.console` (0 browser errors) |
+
+Two gates needed an honest adjustment for the new round, and both are reported rather than silenced:
+`J4.regionSent` asserted that *every* interview request in the run carried `chest`, which the rebuild
+round's `head` turns legitimately break - it now reads the check-in's own turns and says so in its evidence
+line, while `J5.rebuild` owns the rebuild's region. `J5.rebuild` was added for exactly the property the
+owner asked for: a region-change round produces one completion, not repeated completions.
+
+### 7. What was not done
+
+No provider call, no `.env.local` edit, no database or Storage access, no migration or RLS change, no
+Vercel change, no dependency, no destructive git command, and no deletion of the four existing duplicate
+rows. The two scratch text files, the untracked `src/lib/journalSchema.test.ts` and the modified
+`supabase/migrations/001_init.sql` were left exactly as they were and are not part of this commit. The
+temporary harness copy used for the investigation was deleted from `%TEMP%`.
+
+### 8. Warnings and unresolved
+
+1. **A partial failure leaves the session row ahead of the card.** The session is written first, so a card
+   update that fails leaves the session's `region_label`/`view` updated while the card still holds the old
+   region. It is reported as a failure, the screen says the card was not saved, and the state is
+   bookkeeping only (never shown, removed by delete-everything) - the same shape the insert path already
+   documents for a failure between its two writes. Retrying the rebuild settles it.
+2. **The four existing duplicate rows are still there**, by decision. Cleaning them up is a separate call:
+   the app has no per-row delete (only delete-everything), so it would be a targeted database deletion with
+   the owner's approval.
+3. **The identity is not verified client-side.** The screen echoes the ids the server gave it, and both the
+   route and the store validate them as uuids; ownership is decided by row-level security alone. That is
+   deliberate - a client cannot be the authority on whose row an id is - and it means a tampered client can
+   only ever attempt an update that RLS refuses.
+4. **A signed-in rebuild is not covered by an automated gate.** The harness runs without a session
+   (`ISS-17`), so it can see completions but not journal writes; the write paths are covered by the store
+   tests and the wiring by the source-level tests. A signed-in manual check is the acceptance step.
+
+### 9. Next step
+
+The Preview on the release-candidate branch carries this change. Worth a manual pass with a signed-in
+session: one check-in, then "Change the region" and "Edit my answers" in any order - the journal must show
+**one** entry for it, with the region the last round tapped, and a genuinely new check-in must still add a
+new one. The four rows from the earlier session remain until the owner decides about them.
+
+
+
+

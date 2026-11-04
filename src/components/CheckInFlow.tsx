@@ -34,6 +34,7 @@ import {
   type CheckInFlowState,
 } from "@/lib/crisis";
 import type { ProcessingMode } from "@/lib/externalProcessing";
+import type { CardIdentity } from "@/lib/journal";
 import type { BodyView } from "@/lib/regions";
 
 /**
@@ -128,6 +129,16 @@ export default function CheckInFlow({ mode, signedIn }: { mode: ProcessingMode; 
    */
   const [session, setSession] = useState<InterviewSession | null>(null);
   /**
+   * The card the finished check-in was written as (`ISS-24`), or null while nothing has been saved.
+   *
+   * It is held here, beside the session and for exactly the same reason: the interview unmounts when the
+   * user returns to the map, so an id kept inside it would be lost, and the rebuild that follows would
+   * insert a second journal entry for one check-in. This is what a rebuild addresses - `Edit my answers`
+   * and `Change the region` both update the row it names - and `startNewCheckIn` clears it, so a
+   * genuinely new check-in inserts a new card.
+   */
+  const [identity, setIdentity] = useState<CardIdentity | null>(null);
+  /**
    * The map view the person is looking at, held here so the session row a saved card writes can record
    * it (`sessions.view`, which the schema requires). It is bookkeeping, never part of the card, and it
    * starts on the map's own default.
@@ -138,6 +149,8 @@ export default function CheckInFlow({ mode, signedIn }: { mode: ProcessingMode; 
     setRegionLabel(label ?? "");
   }, []);
   const onSession = useCallback((next: InterviewSession | null) => setSession(next), []);
+  /** The identity of the card just written, kept so a rebuild updates it rather than adding a card. */
+  const onSaved = useCallback((next: CardIdentity) => setIdentity(next), []);
 
   /**
    * Start a new check-in, once the card's confirmation has been given. Everything this flow holds goes:
@@ -146,6 +159,7 @@ export default function CheckInFlow({ mode, signedIn }: { mode: ProcessingMode; 
    */
   const startNewCheckIn = useCallback(() => {
     setSession(null);
+    setIdentity(null);
     setRegionLabel("");
     setPreferNotToSay(false);
     setFlow(EMPTY_CHECK_IN_STATE);
@@ -159,6 +173,7 @@ export default function CheckInFlow({ mode, signedIn }: { mode: ProcessingMode; 
         onBack={() => {
           setFlow(backToEmptyCheckIn());
           setSession(null);
+          setIdentity(null);
           setStep("check-in");
         }}
       />
@@ -200,6 +215,8 @@ export default function CheckInFlow({ mode, signedIn }: { mode: ProcessingMode; 
         view={view}
         resume={session}
         onSession={onSession}
+        savedIdentity={identity}
+        onSaved={onSaved}
         onStartNew={startNewCheckIn}
         onBack={() => {
           // Back to the map keeps the words the user wrote in the box. Changing the region must not

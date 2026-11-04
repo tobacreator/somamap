@@ -534,6 +534,27 @@ function interviewPostCount() {
 }
 
 /**
+ * How many of those requests completed a card (`ISS-24`).
+ *
+ * The request that finishes a session is the one carrying all but the last answer: the route words the
+ * card on the third answer, so its body holds two answers and a text. Counting them is how a gate can see
+ * how many **completions** a round produced - and a completion is what the screen saves a card for - with
+ * no session and therefore no write anywhere.
+ */
+function completionCount() {
+  return postedBodies.filter((p) => {
+    if (!p.url.includes("/api/interview") || p.postData === null) return false;
+
+    try {
+      const body = JSON.parse(p.postData);
+      return Array.isArray(body.answers) && body.answers.length === 2;
+    } catch {
+      return false;
+    }
+  }).length;
+}
+
+/**
  * Open or close the body map's short-screen panel (Phase 2H fix).
  *
  * Below a 600px-tall viewport the check-in screen starts with the map closed, behind a compact control,
@@ -1711,6 +1732,89 @@ async function declinePass(prefix) {
 }
 
 
+/* ------------------------------------------------------- the rebuild round (`ISS-24`) */
+
+/**
+ * Change the region from a finished card, and report what the round cost in requests.
+ *
+ * "Change the region" returns to the map with the answers kept, and continuing from there mounts the
+ * interview again and rebuilds the card from them (`ISS-14`). The round must send one turn per answer and
+ * complete **once**: the screen saves a card per completion, and a completion that cannot address the card
+ * it rebuilds is exactly how one check-in became four journal entries. So this measures the round rather
+ * than the card - three requests, one completion, the new region on every turn, and the rebuilt card
+ * naming the region that was tapped.
+ *
+ * Nothing here needs a session, and nothing here writes: an unsigned-in build makes no journal request at
+ * all (`ISS-17`), so the count of completions is the honest proxy for the count of saves.
+ */
+async function journeyRegionChange(prefix, from) {
+  const problems = [];
+  const postsBefore = interviewPostCount();
+  const completionsBefore = completionCount();
+  const other = from.label.includes("chest") ? "head" : "chest";
+
+  if (!(await clickByText("Change the region"))) problems.push("the change-the-region control was not found");
+  await settle(900);
+
+  // Back on the check-in step, with the words the user wrote still in the box, and nothing sent by the way.
+  const back = await evaluate(
+    `(() => { const box = document.querySelector("#checkin-box"); return { box: Boolean(box), text: box ? box.value : "" }; })()`,
+  );
+
+  if (!back.box) problems.push("the check-in step did not come back");
+  if (back.text.length === 0) problems.push("the words in the box were lost on the way back");
+  if (interviewPostCount() !== postsBefore) problems.push("the way back sent an interview request");
+
+  await setMapOpen(true);
+  await settle(300);
+  await scrollFigureIntoView();
+  await settle(200);
+
+  const measured = await evaluate(MEASURE);
+  const zone = measured.zones.find((z) => (z.label || "").includes(other));
+
+  if (!zone) {
+    problems.push(`no ${other} zone to tap`);
+    return { problems, detail: "" };
+  }
+
+  await clickAt(zone.centre.x, zone.centre.y);
+  await settle(250);
+  await clickByText("Continue");
+  await settle(600);
+
+  if (!(await acknowledgeExternalProcessing(`${prefix} (region change)`, interviewPostCount()))) {
+    problems.push("the disclosure was not acknowledged");
+    return { problems, detail: "" };
+  }
+
+  const reached = await pollFor(`document.body.innerText.includes("Your card")`, 20000);
+  const added = interviewPostCount() - postsBefore;
+  const completions = completionCount() - completionsBefore;
+  const regions = postedBodies
+    .filter((p) => p.url.includes("/api/interview"))
+    .slice(postsBefore)
+    .map((p) => {
+      try {
+        return JSON.parse(p.postData).regionLabel;
+      } catch {
+        return "(unparseable)";
+      }
+    });
+  const cardText = await bodyText();
+
+  if (!reached) problems.push("the rebuild never reached a card");
+  if (added !== 3) problems.push(`${added} interview request(s) for one rebuild, expected 3`);
+  if (completions !== 1) problems.push(`${completions} completion(s) for one rebuild, expected 1`);
+  if (regions.some((region) => region !== other)) problems.push(`the rebuild sent the wrong region: ${JSON.stringify(regions)}`);
+  if (!cardText.includes(other)) problems.push(`the rebuilt card does not name ${other}`);
+
+  return {
+    problems,
+    detail: `${added} request(s), ${completions} completion, region ${JSON.stringify(regions)}, card names ${other}`,
+  };
+}
+
 /* ------------------------------------------------------- the journey (regression pack) */
 
 /**
@@ -1794,6 +1898,24 @@ async function journeyPass() {
   const firstPayload = await lastInterviewResponse();
   const firstRows = await evaluate(READ_CARD);
 
+  /**
+   * The rebuild round (`ISS-24`): a finished card, "Change the region", and one more completion. This is
+   * the round that used to add a second journal entry for one check-in, so it is measured here - and the
+   * measurement is about the client, which is why it needs no session and writes nothing.
+   *
+   * The count before it is what lets `J4.regionSent` below read the check-in's own turns and nothing else:
+   * the rebuild's turns carry the region *that* round tapped, which is `J5.rebuild`'s subject.
+   */
+  const postsBeforeRebuild = interviewPostCount();
+  const rebuild = await journeyRegionChange(prefix, chest);
+
+  gate(
+    "J5.rebuild",
+    `${prefix}: changing the region rebuilds the card exactly once`,
+    rebuild.problems.length === 0,
+    rebuild.problems.length === 0 ? rebuild.detail : rebuild.problems.join("; "),
+  );
+
   // The second state (correction 2): the same journey with a time phrase in an answer, so a duration
   // really is collected and the `How long` row has to appear. It runs here so the gate below can read
   // both cards while the gates that report on the first one keep their order.
@@ -1817,8 +1939,14 @@ async function journeyPass() {
   gate("J2.region", `${prefix}: the card names the region the user tapped`, cardText.includes("chest"), cardText.includes("chest") ? "chest" : "region missing");
   gate("P1.line", `${prefix}: the card shows the fixed line`, cardText.includes(DISCLAIMER), cardText.includes(DISCLAIMER) ? "found" : "MISSING");
 
+  /**
+   * The check-in's own turns: every one of them carried the region the user tapped. The rebuild round that
+   * follows sends the region *that* round tapped, and it is `J5.rebuild`'s subject - so this gate reads the
+   * turns up to the rebuild and says so in its evidence line.
+   */
   const regionSent = postedBodies
     .filter((p) => p.url.includes("/api/interview"))
+    .slice(0, postsBeforeRebuild)
     .map((p) => {
       try {
         return JSON.parse(p.postData).regionLabel;
@@ -1830,7 +1958,7 @@ async function journeyPass() {
     "J4.regionSent",
     `${prefix}: the selected region travels with every interview turn`,
     regionSent.length > 0 && regionSent.every((r) => r === "chest"),
-    `regionLabel sent: ${JSON.stringify(regionSent)}`,
+    `regionLabel sent: ${JSON.stringify(regionSent)} (this check-in's own turns; the rebuild round is J5.rebuild)`,
   );
 
   /**

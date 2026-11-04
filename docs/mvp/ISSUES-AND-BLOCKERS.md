@@ -33,6 +33,7 @@ owner can decide in one pass.
 | `ISS-12` | P3 | Deleting `.next` while a dev server runs stops that server | Nothing | Documented, avoid |
 | `ISS-13` | **P1** | No zone can be 44x44 px on a phone: the neck is 7.6% of the figure's width | Touch-target criterion | **OPEN — proven impossible.** See §4 |
 | `ISS-23` | **P1** | The vocabulary helper showed one list on every question, and the words of "I don't know" were shown as chosen vocabulary | Card credibility, and whether the helper helps at all | **RESOLVED 2026-11-04** — the group follows the question; the comparison question offers the bank's own phrases; the words of not knowing leave `quality_words` |
+| `ISS-24` | **P1** | Editing the answers or changing the region saved a **second** journal entry for one check-in (four rows for one check-in were measured) | The journal's credibility: the count is the product's only history | **RESOLVED 2026-11-04** — a rebuild updates the card and its session in place; the ids travel with the session that survives the remount; a new check-in still inserts |
 
 ---
 
@@ -431,4 +432,53 @@ Three defects were visible in that one card, and the third was found while repro
   43 remaining failures are exactly the documented pre-existing set — `T1.zone44`/`T2.control44`
   (`ISS-13`), `D1.firstScreen`/`D2.scrolling`/`D3.focus` (`ISS-07`), `S4.side`/`N1.figure`/`N2.views`
   (`ISS-09`) — with the same counts as before this change.
+
+---
+
+## 7. `ISS-24` — one check-in became four journal entries (P1, fixed 2026-11-04)
+
+**Reported by the owner** after a manual session on the protected Preview: one check-in (answers `in one
+spot`, `tight`, `a tight knot`), then "Change the region" and a tap on `head`. The card on screen was
+right, and the journal held **four** rows for that one check-in — two with `head` and two without a
+region — taking the count from 2 to 6.
+
+- **Evidence — the write.** `src/components/InterviewChat.tsx` saved on every `complete` transition (the
+  save effect, guarded by the completed state object in a ref). That guard is right for a repeat of the
+  *same* completion and blind to a *new* one, and every rebuild produced a new one: "Change the region"
+  unmounts the screen (`CheckInFlow.tsx`, `onBack`), the answers are kept in `session`, and the interview
+  mounts again with `resume={session}` and walks the whole session back through the route (`replay` →
+  `replayPlan`) into a fresh `complete`. `Edit my answers` does the same thing.
+- **Evidence — the store.** `saveJournalCard` (`src/lib/journalStore.ts`) is insert-only: `POST
+  /rest/v1/sessions`, then `POST /rest/v1/cards`. A grep across `src/` finds no `PATCH`, `PUT`, `upsert`
+  or `on_conflict` anywhere, and the client sent `{ card, view }` with **no id** — so the second
+  completion could not have updated the first row even in principle. The route returned the new card's id
+  and the client discarded it (`return { ok: response.status === 201 }`).
+- **Evidence — measured.** A read-only probe (a copy of the harness, run from `%TEMP%`, signed out so
+  nothing was written) drove a check-in and two region-change rounds: interview requests 4 → 7 → 10 and
+  **completions 1 → 2 → 3**, with the two `head` rounds sending byte-identical bodies. One round is one
+  insert, and a round that taps no new zone rebuilds the *same* card — which is exactly how a single
+  check-in ends up with identical pairs.
+- **Impact.** The journal is the product's only history and its count is what the weekly roundup drafts
+  from. One check-in reading as four entries is not cosmetic: it makes the count meaningless.
+- **What must NOT be done.** No upsert as a shortcut; no second card field; no change to the five-field
+  schema, the bank, the crisis shield, the consent path, the RLS policies or the migration; and the four
+  rows already in the journal are left alone.
+- **Fix.** The identity travels with the session. `postJournalCard` sends `cardId` and `sessionId` when the
+  screen is rebuilding a card and omits them when the card is new; the route validates both as uuids (both
+  or neither) and dispatches to `updateJournalCard`, which `PATCH`es the session's `region_label` and
+  `view` and then the card's five fields — the insert path's mirror, and untouched when there is no
+  identity. `CheckInFlow` holds the identity beside the session, so it survives the unmount a region change
+  causes, and clears it in `startNewCheckIn` and on the crisis way back, so a genuinely new check-in still
+  inserts. A `PATCH` that matches no row is a failure, which is what an unauthorized update looks like
+  under row-level security.
+- **Evidence.** `npm run test:unit` — **515/515 pass** (22 new); `npm test` — red-team **8 PASS, 0 FAIL**
+  (T5 reads 103 files; T1/T2/T4 unchanged); `npx tsc --noEmit`, `npm run lint` (0 errors) and
+  `npm run build` green; the harness reports **187 passed / 43 failed of 230**, its 43 being exactly the
+  documented pre-existing set (`T1.zone44`/`T2.control44` = `ISS-13`, `D1.firstScreen`/`D2.scrolling`/
+  `D3.focus` = `ISS-07`, `S4.side`/`N1.figure`/`N2.views` = `ISS-09`), with the new **`J5.rebuild` PASS**
+  ("3 request(s), 1 completion, region [head, head, head], card names head") and `J4.regionSent` now
+  reading the check-in's own turns.
+- **Not fixed, by decision.** The four existing duplicate rows are untouched; cleaning them up is a
+  separate decision for the owner.
+
 

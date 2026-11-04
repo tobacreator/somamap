@@ -369,7 +369,7 @@ describe("the interview's states stay honest", () => {
 
     assert.ok(chat.includes("if (saved.current === flow) return;"));
     assert.ok(chat.includes("saved.current = flow;"));
-    assert.equal([...chat.matchAll(/postJournalCard\(card, view\)/g)].length, 1, "one write site, once per card");
+    assert.equal([...chat.matchAll(/postJournalCard\(card, view, identity\.current\)/g)].length, 1, "one write site, once per card");
   });
 
   it("adds a suggested word without sending anything anywhere, for the question being asked", () => {

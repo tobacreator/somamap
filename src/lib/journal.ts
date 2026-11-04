@@ -23,6 +23,22 @@ import { FALLBACK_CARD, sensationCardSchema, type SensationCard } from "./schema
 export type SavedCard = SensationCard;
 
 /**
+ * The identity of a card that is already in the journal (`ISS-24`).
+ *
+ * A finished check-in can be re-worded without becoming a second check-in: `Edit my answers` and
+ * `Change the region` both rebuild the card from the same answers, and a rebuild must reach the row that
+ * already exists rather than add another. So the ids the first save returned travel with the session that
+ * survives the rebuild, and a genuinely new check-in carries none - which is what keeps the insert path
+ * the path for a new card.
+ *
+ * Both ids are the database's own uuids. Nothing here is a token, a claim about ownership, or proof of
+ * anything: the write that carries them runs **as the user**, so the row-level security in
+ * `001_init.sql` decides whether they name a row this person may touch at all. An id that is not theirs
+ * is answered exactly as an id that does not exist.
+ */
+export type CardIdentity = { cardId: string; sessionId: string };
+
+/**
  * True only when the card's two model-worded fields are the reviewed fallback's own pair, untouched.
  *
  * The renderer shows those values on purpose (`schema.ts`: the fallback carries the blueprint's reviewed

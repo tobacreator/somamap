@@ -1,4 +1,4 @@
-import { isJournalCardRecord, type JournalCardRecord, type SavedCard } from "./journal.ts";
+import { isJournalCardRecord, type CardIdentity, type JournalCardRecord, type SavedCard } from "./journal.ts";
 
 /**
  * The journal's HTTP half - one module, injected `fetch`, as the user.
@@ -45,7 +45,14 @@ export const CARD_SELECT = "id,created_at,location_label,quality_words,intensity
 /** How many cards one journal read asks for. A cap, so a long journal cannot be read without bound. */
 export const JOURNAL_PAGE_LIMIT = 200;
 
-export type SaveJournalResult = { ok: true; id: string } | { ok: false; detail: string };
+/**
+ * The outcome of a journal write: the card's id **and** its session's, so the screen can address the same
+ * row again when the card is re-worded (`ISS-24`), or a failure carrying a content-free detail for the
+ * server log - never the row, the key or the upstream body.
+ */
+export type SaveJournalResult =
+  | { ok: true; id: string; sessionId: string }
+  | { ok: false; detail: string };
 
 export type ListJournalResult =
   | { ok: true; records: readonly JournalCardRecord[] }
@@ -123,9 +130,89 @@ export async function saveJournalCard(
 
     if (typeof id !== "string" || id.length === 0) return { ok: false, detail: "the card write returned no id" };
 
-    return { ok: true, id };
+    return { ok: true, id, sessionId };
   } catch (error) {
     return { ok: false, detail: `the card write failed (${errorName(error)})` };
+  }
+}
+
+/**
+ * Update one saved check-in: the session's bookkeeping, then the card's five fields (`ISS-24`).
+ *
+ * `Edit my answers` and `Change the region` rebuild a card from the answers the session already holds,
+ * and a rebuild is not a second check-in: it must reach the row that already exists. This is that path,
+ * and it is the insert path's mirror - the same two tables, the same allowlisted columns, the same
+ * failure rule - with `PATCH` and an id in the query instead of `POST` and a new row.
+ *
+ *   - **the ids are validated first**, by the same uuid test the reader uses, so a value this build would
+ *     not put in a query is refused before any request is made;
+ *   - **the session is written first**, for the reason the insert path writes it first: a failure between
+ *     the two then leaves the bookkeeping ahead of the card rather than the card ahead of the session that
+ *     owns it. Either way the caller is told the write failed. The session's `region_label` and `view` are
+ *     the only columns a rebuild can change; nothing else on the row is sent;
+ *   - **the card keeps its id and its `session_id`.** The five content columns are sent exactly as the
+ *     insert path sends them, and the session a card belongs to is never re-pointed;
+ *   - **a row that does not come back is a failure, not a save.** PostgREST answers an update that matched
+ *     no row with an empty representation rather than an error, and row-level security is what makes a row
+ *     that is not this user's match nothing - so "no row came back" is the shape an unauthorized update
+ *     takes. Reporting it as a failure is also what keeps this path useless for probing whether someone
+ *     else's id exists: a row that is not theirs and a row that is not there answer the same way.
+ */
+export async function updateJournalCard(
+  config: JournalConfig,
+  card: SavedCard,
+  view: "front" | "back",
+  identity: CardIdentity,
+  fetchImpl: typeof fetch = fetch,
+): Promise<SaveJournalResult> {
+  if (!isCardId(identity.cardId) || !isCardId(identity.sessionId)) {
+    return { ok: false, detail: "the identity was not a pair of ids" };
+  }
+
+  try {
+    const response = await fetchImpl(`${config.baseUrl}/rest/v1/sessions?id=eq.${identity.sessionId}`, {
+      method: "PATCH",
+      headers: headersFor(config, "return=representation"),
+      body: JSON.stringify({ region_label: card.location_label, view }),
+    });
+    const text = await response.text();
+
+    if (response.status !== 200) return { ok: false, detail: `the session update answered ${response.status}` };
+
+    const value = JSON.parse(text) as unknown;
+    const rows = Array.isArray(value) ? value : [];
+
+    if (rows.length === 0) return { ok: false, detail: "the session update matched no row" };
+  } catch (error) {
+    return { ok: false, detail: `the session update failed (${errorName(error)})` };
+  }
+
+  try {
+    const response = await fetchImpl(`${config.baseUrl}/rest/v1/cards?id=eq.${identity.cardId}`, {
+      method: "PATCH",
+      headers: headersFor(config, "return=representation"),
+      body: JSON.stringify(card),
+    });
+    const text = await response.text();
+
+    if (response.status !== 200) {
+      return { ok: false, detail: `the card update answered ${response.status} after the session update landed` };
+    }
+
+    const value = JSON.parse(text) as unknown;
+    const rows = Array.isArray(value) ? value : [];
+    const row: unknown = rows[0];
+    const id = row !== null && typeof row === "object" ? (row as { id?: unknown }).id : null;
+
+    if (rows.length === 0) {
+      return { ok: false, detail: "the card update matched no row after the session update landed" };
+    }
+
+    if (typeof id !== "string" || id.length === 0) return { ok: false, detail: "the card update returned no id" };
+
+    return { ok: true, id, sessionId: identity.sessionId };
+  } catch (error) {
+    return { ok: false, detail: `the card update failed (${errorName(error)})` };
   }
 }
 

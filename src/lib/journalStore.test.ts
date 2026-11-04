@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { isCardId, listJournalCards, readJournalCard, saveJournalCard, type JournalConfig } from "./journalStore.ts";
-import type { SavedCard } from "./journal.ts";
+import {
+  isCardId,
+  listJournalCards,
+  readJournalCard,
+  saveJournalCard,
+  updateJournalCard,
+  type JournalConfig,
+} from "./journalStore.ts";
+import type { CardIdentity, SavedCard } from "./journal.ts";
 
 /**
  * The journal's HTTP half - every path exercised with an injected `fetch`, so nothing here needs a
@@ -68,7 +75,9 @@ describe("saving a card (journal)", () => {
 
     const result = await saveJournalCard(CONFIG, CARD, "front", fetchImpl);
 
-    assert.deepEqual(result, { ok: true, id: CARD_ID });
+    // The card's id *and* its session's come back: the screen keeps both, so a rebuild can update this
+    // check-in rather than add another (`ISS-24`).
+    assert.deepEqual(result, { ok: true, id: CARD_ID, sessionId: SESSION_ID });
     assert.equal(calls.length, 2);
     assert.equal(calls[0].url, "https://project.example/rest/v1/sessions");
     assert.equal(calls[1].url, "https://project.example/rest/v1/cards");
@@ -210,5 +219,171 @@ describe("reading the journal (journal)", () => {
     assert.ok(found.calls[0].url.includes(`id=eq.${CARD_ID}`));
 
     if (result.ok && result.record !== null) assert.equal(result.record.id, CARD_ID);
+  });
+});
+
+/**
+ * Updating a saved card (`ISS-24`).
+ *
+ * `Edit my answers` and `Change the region` rebuild a card from the answers the session already holds, and
+ * the journal must keep one entry per check-in: a rebuild reaches the row that already exists. The path is
+ * the insert path's mirror - the same two tables, the same allowlisted columns, the same failure rule -
+ * with `PATCH` and an id instead of `POST` and a new row. Nothing here inserts anything, and a write that
+ * did not land is never reported as a save.
+ */
+describe("updating a saved card (ISS-24)", () => {
+  const IDENTITY: CardIdentity = { cardId: CARD_ID, sessionId: SESSION_ID };
+  /** The same check-in after the user changed the region: one field moved, the rest is untouched. */
+  const UPDATED: SavedCard = { ...CARD, location_label: "Head" };
+
+  it("updates the session and the card in place, and inserts nothing", async () => {
+    const { calls, fetchImpl } = recordingFetch([
+      { status: 200, body: SESSION_ROW },
+      { status: 200, body: CARD_ROW },
+    ]);
+
+    const result = await updateJournalCard(CONFIG, UPDATED, "back", IDENTITY, fetchImpl);
+
+    assert.deepEqual(result, { ok: true, id: CARD_ID, sessionId: SESSION_ID });
+    assert.equal(calls.length, 2);
+    assert.equal(calls.some((call) => call.method === "POST"), false, "a rebuild never inserts");
+
+    // The session first, then the card - the same order the insert path writes them in.
+    assert.equal(calls[0].method, "PATCH");
+    assert.equal(calls[0].url, `https://project.example/rest/v1/sessions?id=eq.${SESSION_ID}`);
+    assert.deepEqual(Object.keys(JSON.parse(calls[0].body) as object).sort(), ["region_label", "view"]);
+    assert.equal((JSON.parse(calls[0].body) as { region_label: string }).region_label, "Head");
+
+    assert.equal(calls[1].method, "PATCH");
+    assert.equal(calls[1].url, `https://project.example/rest/v1/cards?id=eq.${CARD_ID}`);
+  });
+
+  it("sends the card's five fields and nothing else, and never re-points its session", async () => {
+    const { calls, fetchImpl } = recordingFetch([
+      { status: 200, body: SESSION_ROW },
+      { status: 200, body: CARD_ROW },
+    ]);
+
+    await updateJournalCard(CONFIG, UPDATED, "back", IDENTITY, fetchImpl);
+
+    const body = JSON.parse(calls[1].body) as Record<string, unknown>;
+
+    assert.deepEqual(Object.keys(body).sort(), [
+      "duration",
+      "intensity_metaphor",
+      "location_label",
+      "quality_words",
+      "user_own_sentence",
+    ]);
+    assert.equal("session_id" in body, false, "the session a card belongs to never changes");
+    // The card travels exactly as the session produced it: one field moved because the user moved it, and
+    // their words and their sentence are untouched.
+    assert.deepEqual(body, UPDATED);
+    assert.deepEqual(body.quality_words, CARD.quality_words);
+    assert.equal(body.user_own_sentence, CARD.user_own_sentence);
+    assert.equal(body.intensity_metaphor, CARD.intensity_metaphor);
+
+    // The user's own token travels here too, and no service key exists anywhere in this call.
+    assert.equal(calls[0].headers.authorization, `Bearer ${CONFIG.accessToken}`);
+    assert.equal(calls[1].headers.apikey, CONFIG.anonKey);
+  });
+
+  it("carries no interview answers, acknowledgement, mode or provider text", async () => {
+    const { calls, fetchImpl } = recordingFetch([
+      { status: 200, body: SESSION_ROW },
+      { status: 200, body: CARD_ROW },
+    ]);
+
+    await updateJournalCard(CONFIG, UPDATED, "front", IDENTITY, fetchImpl);
+
+    const sent = calls.map((call) => call.body).join(" ");
+
+    for (const forbidden of ["acknowledgedProvider", "answers", "questionId", "MODEL_MODE", "usedFallback", "choices"]) {
+      assert.equal(sent.includes(forbidden), false, forbidden);
+    }
+  });
+
+  it("a second update of the same card adds no row", async () => {
+    const { calls, fetchImpl } = recordingFetch([
+      { status: 200, body: SESSION_ROW },
+      { status: 200, body: CARD_ROW },
+      { status: 200, body: SESSION_ROW },
+      { status: 200, body: CARD_ROW },
+    ]);
+
+    await updateJournalCard(CONFIG, UPDATED, "front", IDENTITY, fetchImpl);
+    const second = await updateJournalCard(CONFIG, CARD, "front", IDENTITY, fetchImpl);
+
+    assert.deepEqual(second, { ok: true, id: CARD_ID, sessionId: SESSION_ID });
+    assert.equal(calls.length, 4, "two updates, two requests each");
+    assert.equal(calls.filter((call) => call.method === "POST").length, 0, "no second card, ever");
+    assert.equal(new Set(calls.map((call) => call.url)).size, 2, "and always the same two rows");
+  });
+
+  it("refuses an identity that is not a pair of ids, without a request", async () => {
+    const { calls, fetchImpl } = recordingFetch([]);
+
+    for (const identity of [
+      { cardId: "not-a-uuid", sessionId: SESSION_ID },
+      { cardId: CARD_ID, sessionId: "not-a-uuid" },
+      { cardId: `${CARD_ID} or 1=1`, sessionId: SESSION_ID },
+      { cardId: "", sessionId: "" },
+    ]) {
+      const result = await updateJournalCard(CONFIG, CARD, "front", identity, fetchImpl);
+
+      assert.equal(result.ok, false, JSON.stringify(identity));
+    }
+
+    assert.equal(calls.length, 0, "an id this build will not put in a query is never sent");
+  });
+
+  it("reports a row the caller may not touch as a failure, never as a save", async () => {
+    // Row-level security answers a row that is not this user's with an empty representation rather than an
+    // error, so "no row came back" is the shape an unauthorized update takes. It must never read as success
+    // - and because it answers exactly as an id that does not exist does, this path cannot be used to test
+    // whether someone else's id is real.
+    const { calls, fetchImpl } = recordingFetch([
+      { status: 200, body: "[]" },
+      { status: 200, body: "[]" },
+    ]);
+
+    const result = await updateJournalCard(CONFIG, CARD, "front", IDENTITY, fetchImpl);
+
+    assert.equal(result.ok, false);
+    assert.equal(calls.length, 1, "the card is not touched when its session was not");
+  });
+
+  it("reports a card that no longer exists as a failure, after the session update landed", async () => {
+    const { calls, fetchImpl } = recordingFetch([
+      { status: 200, body: SESSION_ROW },
+      { status: 200, body: "[]" },
+    ]);
+
+    const result = await updateJournalCard(CONFIG, CARD, "front", IDENTITY, fetchImpl);
+
+    assert.equal(result.ok, false);
+    assert.equal(calls.length, 2);
+  });
+
+  it("reports a refused update as a failure, whichever of the two writes is refused", async () => {
+    const refusedSession = recordingFetch([{ status: 401, body: "" }]);
+    const refusedCard = recordingFetch([
+      { status: 200, body: SESSION_ROW },
+      { status: 403, body: "row-level security" },
+    ]);
+
+    assert.equal((await updateJournalCard(CONFIG, CARD, "front", IDENTITY, refusedSession.fetchImpl)).ok, false);
+    assert.equal(refusedSession.calls.length, 1, "the card is not written when the session was refused");
+
+    assert.equal((await updateJournalCard(CONFIG, CARD, "front", IDENTITY, refusedCard.fetchImpl)).ok, false);
+    assert.equal(refusedCard.calls.length, 2, "and the failure is reported even though the session landed");
+  });
+
+  it("reports an unreachable service as a failure", async () => {
+    const fetchImpl = (async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+
+    assert.equal((await updateJournalCard(CONFIG, CARD, "front", IDENTITY, fetchImpl)).ok, false);
   });
 });
