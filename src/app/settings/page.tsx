@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 
 import DeleteEverything from "@/components/DeleteEverything";
+import PaperPage from "@/components/PaperPage";
 import ProcessingStatus from "@/components/ProcessingStatus";
 import Screen from "@/components/Screen";
 import SignOutButton from "@/components/SignOutButton";
@@ -71,33 +72,35 @@ async function SettingsBody() {
 
 export default function SettingsPage() {
   return (
-    <Screen>
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">{SETTINGS_TITLE}</h1>
-        <p className="text-body text-ink-muted">{SETTINGS_INTRO}</p>
+    <PaperPage>
+      <Screen>
+        <header className="flex flex-col gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">{SETTINGS_TITLE}</h1>
+          <p className="text-body text-ink-muted">{SETTINGS_INTRO}</p>
 
-        {/* The three ways on (`ISS-17`). Settings was a dead end: the delete switch and nothing else,
-            so the journal was reachable only by editing the address bar. The labels are the journal's
-            own strings where the destination is the journal's own screen. */}
-        <nav aria-label={SETTINGS_NAV_LABEL} className="flex flex-wrap gap-x-4 gap-y-1">
-          <Link href="/journal" className={NAV_LINK}>
-            {SETTINGS_NAV_JOURNAL}
-          </Link>
+          {/* The three ways on (`ISS-17`). Settings was a dead end: the delete switch and nothing else,
+              so the journal was reachable only by editing the address bar. The labels are the journal's
+              own strings where the destination is the journal's own screen. */}
+          <nav aria-label={SETTINGS_NAV_LABEL} className="flex flex-wrap gap-x-4 gap-y-1">
+            <Link href="/journal" className={NAV_LINK}>
+              {SETTINGS_NAV_JOURNAL}
+            </Link>
 
-          <Link href="/checkin" className={NAV_LINK}>
-            {SETTINGS_NAV_CHECKIN}
-          </Link>
+            <Link href="/checkin" className={NAV_LINK}>
+              {SETTINGS_NAV_CHECKIN}
+            </Link>
 
-          <Link href="/" className={NAV_LINK}>
-            {SETTINGS_NAV_HOME}
-          </Link>
-        </nav>
-      </header>
+            <Link href="/" className={NAV_LINK}>
+              {SETTINGS_NAV_HOME}
+            </Link>
+          </nav>
+        </header>
 
-      <Suspense fallback={<p className="text-label text-ink-muted">{SETTINGS_LOADING}</p>}>
-        <SettingsBody />
-      </Suspense>
-    </Screen>
+        <Suspense fallback={<p className="text-label text-ink-muted">{SETTINGS_LOADING}</p>}>
+          <SettingsBody />
+        </Suspense>
+      </Screen>
+    </PaperPage>
   );
 }
 

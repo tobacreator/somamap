@@ -6,6 +6,7 @@ import { Suspense } from "react";
 
 import JournalCards from "@/components/JournalCards";
 import Panel from "@/components/Panel";
+import PaperPage from "@/components/PaperPage";
 import Screen from "@/components/Screen";
 import {
   JOURNAL_EMPTY_BODY,
@@ -95,22 +96,24 @@ async function JournalBody() {
 
 export default function JournalPage() {
   return (
-    <Screen>
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">{JOURNAL_TITLE}</h1>
-        <p className="text-body text-ink-muted">{JOURNAL_INTRO}</p>
+    <PaperPage>
+      <Screen>
+        <header className="flex flex-col gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">{JOURNAL_TITLE}</h1>
+          <p className="text-body text-ink-muted">{JOURNAL_INTRO}</p>
 
-        <Link
-          href="/checkin"
-          className="inline-flex min-h-11 items-center text-label font-medium text-accent-text underline"
-        >
-          {JOURNAL_START_CHECKIN}
-        </Link>
-      </header>
+          <Link
+            href="/checkin"
+            className="inline-flex min-h-11 items-center text-label font-medium text-accent-text underline"
+          >
+            {JOURNAL_START_CHECKIN}
+          </Link>
+        </header>
 
-      <Suspense fallback={<p className="text-label text-ink-muted">{JOURNAL_LOADING}</p>}>
-        <JournalBody />
-      </Suspense>
-    </Screen>
+        <Suspense fallback={<p className="text-label text-ink-muted">{JOURNAL_LOADING}</p>}>
+          <JournalBody />
+        </Suspense>
+      </Screen>
+    </PaperPage>
   );
 }

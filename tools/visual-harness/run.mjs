@@ -217,6 +217,36 @@ function readMapSpaces() {
 
 const MAP_SPACES = readMapSpaces();
 
+/**
+ * The light palette's two text colours, read from the stylesheet the browser receives.
+ *
+ * Every screen renders through `PaperPage`, whose class the stylesheet's pin reads, so the page a person
+ * sees is the light palette in both colour schemes. The pin restates that palette in globals.css, and
+ * `src/lib/contrast.ts` splits the same file on the same marker, so this keeps no copy of a colour: C8
+ * asserts what the app ships rather than what a reviewer remembers.
+ */
+function readLightPalette() {
+  const css = readFileSync(join(REPO, "src", "app", "globals.css"), "utf8");
+  const marker = "@media (prefers-color-scheme: dark)";
+  const at = css.indexOf(marker);
+  const light = at === -1 ? css : css.slice(0, at);
+  const value = (name) => {
+    const match = new RegExp(`--color-${name}\\s*:\\s*(#[0-9a-fA-F]{3,8})\\s*;`).exec(light);
+    return match ? match[1] : null;
+  };
+
+  const paper = value("paper");
+  const ink = value("ink");
+
+  if (paper === null || ink === null) {
+    throw new Error("globals.css declares no light --color-paper/--color-ink for the pinned palette");
+  }
+
+  return { paper, ink };
+}
+
+const LIGHT_PALETTE = readLightPalette();
+
 /* ------------------------------------------------------------------ CDP plumbing */
 
 let chrome = null;
@@ -922,6 +952,7 @@ const COLOURS = `(() => {
   return {
     paper: body.backgroundColor,
     ink: body.color,
+    colorScheme: getComputedStyle(document.documentElement).colorScheme,
     surface: silhouette ? styleOf(silhouette).fill : null,
     zoneStroke: unselectedRect ? styleOf(unselectedRect).stroke : null,
     zoneStrokeWidth: unselectedRect ? styleOf(unselectedRect).strokeWidth : null,
@@ -1116,6 +1147,30 @@ function contrastGates(prefix, colours) {
         : `${measured.toFixed(2)}:1 (${pair.fg} on ${pair.bg})`,
     );
   }
+
+  // C8/C9 - the product's paper, not the visitor's. Every screen renders through `PaperPage`, so the
+  // stylesheet's pin (`html:has(.paper-page)`) resolves the light palette in both colour schemes, and the
+  // native controls follow it. These two gates are the rendered half of that claim, and this function runs
+  // at a dark-preferring viewport as well as a light one; src/lib/paletteScope.test.ts is the source half.
+  const sameColour = (first, second) =>
+    Boolean(first) && Boolean(second) && first.r === second.r && first.g === second.g && first.b === second.b;
+
+  gate(
+    "C8.pinned",
+    `${prefix}: the page holds SomaMap's paper whatever the colour scheme asks for`,
+    sameColour(parseColour(colours.paper), parseColour(LIGHT_PALETTE.paper)) &&
+      sameColour(parseColour(colours.ink), parseColour(LIGHT_PALETTE.ink)),
+    `paper ${colours.paper} (stylesheet light ${LIGHT_PALETTE.paper}), ink ${colours.ink} (stylesheet light ${LIGHT_PALETTE.ink})`,
+  );
+
+  gate(
+    "C9.native",
+    `${prefix}: native controls follow the light colour scheme`,
+    typeof colours.colorScheme === "string" &&
+      colours.colorScheme.includes("light") &&
+      !colours.colorScheme.includes("dark"),
+    `color-scheme=${colours.colorScheme}`,
+  );
 }
 
 /** The figure and view controls the plan names, read from the rendered groups. */
@@ -1979,6 +2034,46 @@ async function selfTest() {
     }
     return true;
   })()`);
+
+  // ST6 - C8 detects a page that keeps the visitor's colour scheme, which is the defect this gate exists
+  // for: the paper is the product's, so repainting it with the dark palette must fail.
+  await evaluate(`(() => {
+    document.body.style.backgroundColor = "rgb(20, 18, 15)";
+    return true;
+  })()`);
+  await settle(150);
+  const repainted = await evaluate(COLOURS);
+  const repaintedScratch = [];
+  await withSink(repaintedScratch, () => contrastGates("self-test", repainted));
+  const c8Repainted = repaintedScratch.find((g) => g.id === "C8.pinned")?.ok ?? false;
+  const c8Base = baseScratch.find((g) => g.id === "C8.pinned")?.ok ?? false;
+  probe(
+    "ST6.pinned",
+    "C8 fails when the page is repainted with the dark palette",
+    c8Base === true && c8Repainted === false,
+    `C8 on the app=${c8Base}, after painting the page rgb(20, 18, 15)=${c8Repainted}`,
+  );
+
+  await evaluate(`(() => { document.body.style.backgroundColor = ""; return true; })()`);
+  await settle(150);
+
+  // ST7 - C9 detects a document that asks for dark native controls.
+  await evaluate(`(() => { document.documentElement.style.colorScheme = "dark"; return true; })()`);
+  await settle(150);
+  const darkControls = await evaluate(COLOURS);
+  const darkControlsScratch = [];
+  await withSink(darkControlsScratch, () => contrastGates("self-test", darkControls));
+  const c9Dark = darkControlsScratch.find((g) => g.id === "C9.native")?.ok ?? false;
+  const c9Base = baseScratch.find((g) => g.id === "C9.native")?.ok ?? false;
+  probe(
+    "ST7.native",
+    "C9 fails when the document asks for dark native controls",
+    c9Base === true && c9Dark === false,
+    `C9 on the app=${c9Base}, with color-scheme forced to dark=${c9Dark}`,
+  );
+
+  await evaluate(`(() => { document.documentElement.style.colorScheme = ""; return true; })()`);
+  await settle(150);
 
   const passed = found.filter((f) => f.ok).length;
   console.log("");

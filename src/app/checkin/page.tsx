@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 
 import CheckInFlow from "@/components/CheckInFlow";
+import PaperPage from "@/components/PaperPage";
 import Screen from "@/components/Screen";
 import { currentSession } from "@/lib/authSession";
 import { CHECKIN_LOADING } from "@/lib/copy";
@@ -53,11 +54,13 @@ async function CheckInBody() {
 
 export default function CheckInPage() {
   return (
-    <Screen>
-      <Suspense fallback={<p className="text-label text-ink-muted">{CHECKIN_LOADING}</p>}>
-        <CheckInBody />
-      </Suspense>
-    </Screen>
+    <PaperPage>
+      <Screen>
+        <Suspense fallback={<p className="text-label text-ink-muted">{CHECKIN_LOADING}</p>}>
+          <CheckInBody />
+        </Suspense>
+      </Screen>
+    </PaperPage>
   );
 }
 

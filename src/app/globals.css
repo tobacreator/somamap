@@ -89,13 +89,14 @@
 /**
  * The warm paper the product stands on.
  *
- * The pages a person meets before they have an account - the public landing page and the two auth screens
- * - present SomaMap's warm paper in **both** colour modes: a first impression should be the product's
- * ivory, not the visitor's operating system preference. Everything behind a session keeps switching with
- * the mode, so this is a deliberate scope and not a second palette.
+ * Every screen in the product renders through `PaperPage`, so SomaMap presents its warm paper in
+ * **both** colour modes: the ivory is the product, not the visitor's operating system preference.
  *
- * The scope was the landing page's alone until the auth screens were found rendering the dark palette on
- * a warm product; it is now named for what it is rather than for the first page that needed it.
+ * The scope grew in three steps, each one a screen found rendering the dark palette on a warm product:
+ * the landing page alone, then the two auth screens, and now the whole application - the check-in, the
+ * journal and its saved card, and settings - because someone who signs in must not watch the product
+ * change colour underneath them. The dark palette below is kept: it is still what the tokens resolve to
+ * where nothing pins them, and it is the palette the contrast tests measure.
  *
  * It is written as `html:has(.paper-page)` and placed **before** the dark block for two reasons that both
  * matter: the specificity makes it win against the dark `:root` whatever the order (so the page really
@@ -106,10 +107,14 @@
  * that decision. Nothing else changes: the type, the radii and the accents are the same tokens, so this
  * is the same design in the same system, with the paper held still.
  *
- * `PaperPage` (src/components/PaperPage.tsx) is the only thing that adds the class, so the scope and the
- * markup cannot drift apart.
+ * `PaperPage` (src/components/PaperPage.tsx) is the only thing that adds the class, and
+ * src/lib/paletteScope.test.ts fails if a route renders without it, so the scope and the markup cannot
+ * drift apart.
  */
 html:has(.paper-page) {
+  /* Native form controls, focus rings and scrollbars follow the page rather than the operating system. */
+  color-scheme: light;
+
   --color-paper: #fbfaf8;
   --color-surface: #e5e0d8;
   --color-tint: #d3cbbd;

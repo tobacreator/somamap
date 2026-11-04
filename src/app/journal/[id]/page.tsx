@@ -6,6 +6,7 @@ import { Suspense } from "react";
 
 import CardView from "@/components/CardView";
 import Panel from "@/components/Panel";
+import PaperPage from "@/components/PaperPage";
 import Screen from "@/components/Screen";
 import { CARD_TITLE, JOURNAL_BACK, JOURNAL_LOAD_FAILED, JOURNAL_LOADING, JOURNAL_NOT_FOUND } from "@/lib/copy";
 import { currentSession, supabaseTarget } from "@/lib/authSession";
@@ -108,12 +109,14 @@ async function SavedCardBody({ params }: { params: Promise<{ id: string }> }) {
 
 export default function SavedCardPage({ params }: { params: Promise<{ id: string }> }) {
   return (
-    <Screen>
-      <h1 className="text-2xl font-semibold tracking-tight text-ink">{CARD_TITLE}</h1>
+    <PaperPage>
+      <Screen>
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">{CARD_TITLE}</h1>
 
-      <Suspense fallback={<p className="text-label text-ink-muted">{JOURNAL_LOADING}</p>}>
-        <SavedCardBody params={params} />
-      </Suspense>
-    </Screen>
+        <Suspense fallback={<p className="text-label text-ink-muted">{JOURNAL_LOADING}</p>}>
+          <SavedCardBody params={params} />
+        </Suspense>
+      </Screen>
+    </PaperPage>
   );
 }
