@@ -231,7 +231,7 @@ export const EXTERNAL_PROCESSING_MOCK: ProcessingDisclosure = {
   data: "The description you wrote, the location you chose or typed, and your answers are used to word your card. They are not sent to Baseten or to any other external provider.",
   acknowledge: "Continue without AI",
   details:
-    "Nothing leaves this build: the card is worded from SomaMap's own recorded examples, and no external provider is contacted.",
+    "Nothing leaves this build: the card is worded from your own answers, and no external provider is contacted.",
 };
 
 /** What the user is told when their words do go to Baseten: who, which words, and how often. */
