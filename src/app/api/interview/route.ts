@@ -46,6 +46,24 @@ import { adapterFor, consoleViolationLogger, internalErrorRecord, modelMode } fr
  * call. It is an abuse deterrent, not authentication, and not a spend ceiling - the module states that
  * limitation in full, and this route's `429` claims no more than it can.
  */
+
+/**
+ * How long this route may run, in seconds (`ISS-28` follow-up, measured on the live path).
+ *
+ * The live interview is a *reasoning* model, and one turn is one request that waits for it: measured live
+ * turns on the configured model took 5.0 s to 16.3 s (four-turn session: 16.3 / 11.0 / 5.0 / 10.8 s), and
+ * the adapter's own 20 s timeout is the real ceiling on a single turn. Hosting platforms apply their own
+ * function limit when a route does not declare one - Vercel's defaults are 10 s on Hobby and 15 s on Pro -
+ * so without this line a live deployment would be killed mid-turn by the platform and answer a 504, even
+ * though nothing in this application was wrong. That would look like a provider failure and be one.
+ *
+ * This raises the platform ceiling only. It changes no behaviour, adds no retry, sends nothing, and cannot
+ * affect mock mode (which makes no request at all); the adapter still aborts a slow provider at its own
+ * timeout and still fails closed to the reviewed card. Sixty seconds is within every plan's configurable
+ * maximum, and it leaves room for a slow turn without leaving the person waiting indefinitely.
+ */
+export const maxDuration = 60;
+
 export async function POST(request: Request): Promise<Response> {
   /**
    * The public demo's guard, and it comes first (`ISS-27`).
