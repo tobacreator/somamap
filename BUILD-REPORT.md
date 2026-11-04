@@ -12683,6 +12683,170 @@ session: one check-in, then "Change the region" and "Edit my answers" in any ord
 **one** entry for it, with the region the last round tapped, and a genuinely new check-in must still add a
 new one. The four rows from the earlier session remain until the owner decides about them.
 
+## Entry 56 - 2026-11-04 11:29 (+01:00) - The saved card becomes editable, and the interview stops requiring words (`ISS-25`, IMPLEMENTED)
+
+### 1. Task and boundaries
+
+Requested (the founder's deadline mandate of 2026-11-04): a check-in from the protected Preview produced
+a card whose detail page offered only "Back to journal" - the founder could neither correct their own
+words nor change the region. Investigate read-only first, then deliver the experience: an editable saved
+card, a region change that does not duplicate the card, an interview that does not force words out of
+someone who has none, and an end-to-end acceptance journey.
+
+Authorised: the journal detail route, a new editor component, `src/lib/journal.ts` / `journalStore.ts` /
+`cardEdit.ts`, `InterviewChat.tsx`, copy, tests, the harness, and the docs. **Not** touched: the
+five-field schema, the question bank, the contextual vocabulary (`ISS-23`), the crisis shield, consent, the
+provider configuration, the migration or RLS, and the four existing duplicate rows.
+
+**Outcome in one line:** a saved card can now be corrected - its own sentence and its region - through the
+update path built for `ISS-24`, so the same row changes and nothing is added; and a question can be left
+unanswered without any word being invented for it. **538/538 unit tests**, red-team **8/8**, `tsc`, `lint`
+and `build` green, the harness at **189 passed / 43 failed of 232** with the documented baseline unchanged
+and two new gates passing.
+
+### 2. What was wrong, with the evidence
+
+- **The page was a dead end by construction.** `src/app/journal/[id]/page.tsx` rendered `CardView` plus a
+  `BackToJournal` link and nothing else. The only editing in the product lived in `InterviewChat.tsx`'s
+  completed-card screen (`Edit my answers` → `startEditing`/`saveEdits`/`replay`; `Change the region` →
+  `onBack` → the check-in step), and that screen is reachable only from `/checkin`, with the session held
+  in memory (`resume={session}`). The journal stores the card and the session's `region_label`/`view` -
+  **not** the questions and answers - so a card opened from the journal had nothing to resume, and
+  reconstructing answers from its five rows would have invented answers the person never gave.
+- **The interview required words.** `readyToSend = text.trim().length > 0 && !busy` gated the only way
+  forward, and the hint said "Type a few words to continue." The founder's own card shows the result: a
+  card whose "In your words" row reads "Don't know how to describe it" - a statement of not knowing,
+  faithfully preserved, in a product that offered no way to revise it.
+- **Both halves are the same promise failing.** The product helped the person find two words (`tight`,
+  "a heavy knock") and then froze the card: it could not be corrected, and the question they could not
+  answer had to be filled with something that was not an answer.
+
+### 3. Files changed
+
+| file | change |
+|---|---|
+| `src/app/journal/[id]/page.tsx` | reads the card with its session (`readJournalCardDetail`) and renders `SavedCardEditor` when the session's view is readable and the row passes the strict schema; the way back is now on **every** branch (the failure panels had none) |
+| `src/components/SavedCardEditor.tsx` | **new** - "Edit this card": the person's sentence and the region (the check-in's own `BodyMap`), saved through the update path; a failure line that says nothing was saved, and a refresh only after a confirmed update |
+| `src/lib/cardEdit.ts` | **new** - `cardWithEdits` (the stored card with two fields replaced, the other three handed on untouched) and `saveEditedCard` (the route's update path, where **only a 200 naming the same card is success** - a 201 would mean a duplicate) |
+| `src/lib/journalStore.ts` | `CARD_DETAIL_SELECT`, `JournalCardDetail`, `readJournalCardDetail` and a separate `readSessionView` that is allowed to fail |
+| `src/components/InterviewChat.tsx` | `unsure()` - sends the question unanswered - and the secondary control that offers it |
+| `src/lib/copy.ts` | the editor's strings, the "not sure" strings, and the answer hint no longer implying that words are required |
+| `src/lib/cardEdit.test.ts` | **new** - the two fields change and the three do not, the sentence is kept exactly as typed, the write addresses the same row, no non-200 is ever a save, a 201 is a failure, and a second edit is a second update |
+| `src/lib/journalStore.test.ts` | the detail read: the card, its session and the view; a failed session read still returns the card with no view; a non-uuid id makes no request; a card read failure is a failure |
+| `src/lib/interview.test.ts` | an all-skipped interview still reaches a card with empty rows and the sentence intact; a skipped question adds nothing when the others are answered |
+| `src/lib/journalIdentity.test.ts` | the page offers the editor only for a saveable row, sends the identity from the page and never from a field, refreshes only after a confirmed update; the interview's unsure control sends an empty answer |
+| `tools/visual-harness/run.mjs` | `journeyUnsure()` and the `J6.unsure` gate |
+| `docs/mvp/ISSUES-AND-BLOCKERS.md`, `BUILD-REPORT.md` | the `ISS-25` row and section 8; this entry |
+
+### 4. The change, before and after
+
+Before - a card you could read:
+
+```tsx
+<CardView payload={cardPayloadFromRecord(result.record)} />
+<BackToJournal />
+```
+
+After - a card you can correct:
+
+```tsx
+<CardView payload={card} />
+{editable && view !== null ? (
+  <SavedCardEditor card={card} identity={{ cardId: result.card.record.id, sessionId: result.card.sessionId }} view={view} />
+) : null}
+<BackToJournal />
+```
+
+and the write it makes is the update path, not a new card:
+
+```ts
+cardWithEdits(card, { sentence, region })   // two fields replaced, three handed on untouched
+  -> POST /api/journal { card, view, cardId, sessionId }   // 200 = the same row, 201 = a duplicate -> failure
+```
+
+The interview, before and after:
+
+```tsx
+<Button type="submit" disabled={!readyToSend}>{INTERVIEW_ANSWER_SUBMIT}</Button>
+// ...now, beside it:
+<Button id="interview-unsure" variant="secondary" onClick={() => void unsure()}>{INTERVIEW_UNSURE}</Button>
+```
+
+`unsure()` sends `answerRequest(flow, "", regionLabel, description)` - the same turn with an empty text.
+
+### 5. Evidence that nothing else moved
+
+- The five-field schema, the bank, the contextual vocabulary, the crisis shield, consent and the migration
+  are untouched; T1, T2, T3, T4, T6 and T7 pass unchanged, and T5 scans 106 files with zero hits.
+- Editing reuses the `ISS-24` update path rather than adding a second write: the card is reduced by
+  `savedCardFromPayload` after the strict schema on every write, the ids are validated twice, and RLS still
+  decides ownership.
+- The interview's answered path is byte-for-byte the same: `readyToSend` and the submit button's condition
+  are unchanged, and the new control is `type="button"` beside the form's submit.
+- An empty answer is handled by the machinery that already existed: `answerEntries` filters empty texts, so
+  the card's material is the answers that were given, and the sequence check still passes because the
+  question keeps its id.
+- The four existing duplicate rows were not touched, and no card was deleted.
+
+### 6. Commands and results
+
+| command | exit | result |
+|---|---|---|
+| `npm run test:unit` | 0 | **538 tests / 124 suites, 538 pass, 0 fail** (23 new) |
+| `npm test` | 0 | unit suite exit 0; red-team **8 PASS, 0 FAIL, 0 NOT IMPLEMENTED** (T5: 106 files, zero hits) |
+| `npx tsc --noEmit` | 0 | clean |
+| `npm run lint` | 0 | 0 errors; the 2 warnings are the pre-existing unused variables in `tools/visual-harness/run.mjs` |
+| `npm run build` | 0 | 16/16 static pages, the same routes |
+| `node tools/visual-harness/run.mjs` | 1 | **189 passed, 43 failed of 232**. New: **`J5.rebuild` PASS** ("3 request(s), 1 completion, region [head, head, head], card names head") and **`J6.unsure` PASS** ("question 1 skipped with an empty answer; card reached; the sentence and the comparison are intact"). The 43 failures are exactly the documented baseline: `T1.zone44` 10, `T2.control44` 10 (`ISS-13`), `D1.firstScreen` 7, `D2.scrolling` 7, `D3.focus` 3 (`ISS-07`), `S4.side` 4, `N1.figure` 1, `N2.views` 1 (`ISS-09`). Every journey gate passes; 0 browser errors |
+
+One failure of my own was caught and fixed by the work itself rather than silenced: an assertion I wrote
+("the way back is on every branch") failed because the two *failure* panels on the card's page had no link
+back - a real gap for anyone whose card failed to load. The page was fixed, not the assertion.
+
+### 7. What was not done
+
+No provider call, no `.env.local` edit, no database or Storage access, no migration or RLS change, no
+Vercel change, no dependency, no destructive git command, and no deletion of the four existing duplicate
+rows. The two scratch text files, the untracked `src/lib/journalSchema.test.ts` and the modified
+`supabase/migrations/001_init.sql` were left exactly as they were and are not part of this commit. The
+temporary harness scripts used for the runs were deleted from `%TEMP%`, and the local server and its
+Chrome were stopped.
+
+### 8. Warnings and unresolved
+
+1. **The signed-in acceptance journey was not exercised here, and is not claimed.** It needs a session
+   this workspace does not have (`.env.local` carries no Supabase credentials), and the harness runs
+   unsigned-in by design (`ISS-17`) - so it can drive the interview but never the write. What *is*
+   covered: the update path and its refusals (store tests), the exact request the editor makes and its
+   success/failure rule (cardEdit tests), and the wiring that supplies the identity and the view
+   (source-level tests). **The founder's own pass is the acceptance step**: open the card, tap
+   "Edit this card", change the sentence, Save, confirm the journal still shows one entry for that
+   check-in, then change the region, Save, and confirm the same. A genuinely new check-in must still add a
+   new entry.
+2. **The session read is the one seam not exercised against a live database.** It is a plain
+   `GET /rest/v1/sessions?select=view&id=eq.<id>`, and if it fails the card still renders with no editor -
+   the failure is visible and degrades to the previous behaviour rather than to a wrong card.
+3. **The focused editor covers two fields, by decision.** The person's sentence and the region, which is
+   what the mandate requires and what can be changed without asking anything again. The words they chose,
+   the comparison and the duration are preserved exactly and are not editable here; changing those safely
+   means the question that produced them, which is the interview's own editing (still available in a live
+   session).
+4. **The four duplicate rows remain**, by decision. Nothing in this work deleted or merged them.
+5. **`D1.firstScreen`, `D2.scrolling`, `D3.focus`, `T1.zone44`, `T2.control44`, `S4.side`, `N1.figure`,
+   `N2.views`** remain at the documented baseline (43 gates), unchanged by this work.
+
+### 9. Next step
+
+The Preview on the release-candidate branch carries this change. The founder's card
+(`0212412f-bb4e-43b7-8251-5018b0d70895`) should now open with "Edit this card" under it: replacing
+"Don't know how to describe it" with their own words, and changing the region, must both update that same
+card and leave the journal's count where it is. The two other things worth a look are the interview's
+"Not sure about this one" control on any question, and the fact that a card whose words were chosen while
+unsure can now be corrected without redoing the interview.
+
+
+
+
 
 
 

@@ -1815,6 +1815,103 @@ async function journeyRegionChange(prefix, from) {
   };
 }
 
+/* ------------------------------------------------------- the unsure session (`ISS-25`) */
+
+/**
+ * Leave a question unanswered, and still reach a card (`ISS-25`).
+ *
+ * The interview used to require words on every question - the submit button stayed disabled until
+ * something was typed - which is how "Don't know how to describe it" became a card's own sentence. This
+ * walks the ordinary journey but skips the first question with the control the screen now offers, answers
+ * the other two, and checks that the interview still completes and that what the person did say survives:
+ * the sentence they wrote first, and the comparison they gave.
+ *
+ * Nothing here needs a session, and nothing is written: an unsigned-in build makes no journal request at
+ * all, and this gate is about the interview rather than the save.
+ */
+async function journeyUnsure(prefix) {
+  if (!(await goto(`${BASE}/checkin`, `${prefix} (unsure session)`))) return null;
+
+  await evaluate("document.fonts.ready.then(() => true)");
+  await settle(300);
+  await setMapOpen(true);
+  await settle(200);
+  await scrollFigureIntoView();
+  await settle(200);
+
+  const measured = await evaluate(MEASURE);
+  const zone = measured.zones.find((z) => (z.label || "").includes("shoulder")) ?? measured.zones[0];
+
+  if (!zone) return null;
+
+  await clickAt(zone.centre.x, zone.centre.y);
+  await settle(200);
+  await typeInto("#checkin-box", "Don't know how to describe it");
+  await settle(150);
+
+  const postsBefore = interviewPostCount();
+
+  await clickByText("Continue");
+  await settle(600);
+
+  if (!(await acknowledgeExternalProcessing(`${prefix} (unsure session)`, postsBefore))) return null;
+
+  const ready = await pollFor(
+    `(() => { const t = document.querySelector("textarea"); return Boolean(t) && !t.disabled; })()`,
+    15000,
+  );
+
+  if (!ready) return null;
+
+  if (!(await clickSelector("#interview-unsure"))) return null;
+
+  const advanced = await pollFor(
+    `(() => { const t = document.querySelector("textarea"); return Boolean(t) && !t.disabled && t.value === ""; })()`,
+    15000,
+  );
+  const skipped = postedBodies
+    .filter((p) => p.url.includes("/api/interview"))
+    .slice(postsBefore)
+    .some((p) => {
+      try {
+        return JSON.parse(p.postData).text === "";
+      } catch {
+        return false;
+      }
+    });
+
+  for (const answer of ["tight", "a heavy knock"]) {
+    const readyNow = await pollFor(
+      `(() => { const t = document.querySelector("textarea"); return Boolean(t) && !t.disabled; })()`,
+      15000,
+    );
+
+    if (!readyNow) break;
+
+    await typeInto("textarea", answer);
+    await settle(200);
+    await clickByText("Continue");
+
+    const moved = await pollFor(
+      `(() => {
+        if (document.body.innerText.includes("Your card")) return true;
+        const t = document.querySelector("textarea");
+        return Boolean(t) && !t.disabled && t.value === "";
+      })()`,
+      15000,
+    );
+
+    if (!moved) break;
+  }
+
+  return {
+    advanced,
+    skipped,
+    reached: await evaluate(`document.body.innerText.includes("Your card")`),
+    cardText: await bodyText(),
+  };
+}
+
 /* ------------------------------------------------------- the journey (regression pack) */
 
 /**
@@ -1920,6 +2017,34 @@ async function journeyPass() {
   // really is collected and the `How long` row has to appear. It runs here so the gate below can read
   // both cards while the gates that report on the first one keep their order.
   const withDuration = await journeyWithDuration(prefix);
+
+  /**
+   * The uncertainty path (`ISS-25`): a question left unanswered, and a card that still arrives with what
+   * the person did say. This is the third session of the journey, and the only one that does not answer
+   * every question.
+   */
+  const unsure = await journeyUnsure(prefix);
+
+  if (unsure === null) {
+    gate("J6.unsure", `${prefix}: a question can be left unanswered`, false, "the unsure session could not be walked");
+  } else {
+    const unsureProblems = [];
+
+    if (!unsure.advanced) unsureProblems.push("the interview did not move past the unanswered question");
+    if (!unsure.skipped) unsureProblems.push("no request carried an empty answer");
+    if (!unsure.reached) unsureProblems.push("the interview did not reach a card");
+    if (!unsure.cardText.includes("Don't know how to describe it")) unsureProblems.push("the sentence written first was lost");
+    if (!unsure.cardText.includes("a heavy knock")) unsureProblems.push("the comparison that was given is missing");
+
+    gate(
+      "J6.unsure",
+      `${prefix}: a question can be left unanswered, and the interview still reaches a card`,
+      unsureProblems.length === 0,
+      unsureProblems.length === 0
+        ? "question 1 skipped with an empty answer; card reached; the sentence and the comparison are intact"
+        : unsureProblems.join("; "),
+    );
+  }
 
   const firstProblems = cardShapeProblems(firstPayload, firstRows, "");
   const secondProblems =

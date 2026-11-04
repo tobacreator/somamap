@@ -156,3 +156,71 @@ describe("the store's two paths", () => {
     assert.ok(store.includes("if (!isCardId(identity.cardId) || !isCardId(identity.sessionId))"), "validated here too");
   });
 });
+
+const DETAIL = "src/app/journal/[id]/page.tsx";
+const EDITOR = "src/components/SavedCardEditor.tsx";
+
+describe("the saved card's own page (ISS-25)", () => {
+  const page = source(DETAIL);
+  const editor = source(EDITOR);
+
+  it("reads the card's identity with the card, and offers the editor", () => {
+    assert.ok(page.includes("readJournalCardDetail("), "the read brings back the session and the view");
+    assert.ok(page.includes("<SavedCardEditor"));
+    assert.ok(page.includes("cardId: result.card.record.id"));
+    assert.ok(page.includes("sessionId: result.card.sessionId"));
+    assert.ok(page.includes("view={view}"), "the view the session recorded, never a guess");
+    assert.ok(page.includes("const view = result.card.view;"));
+  });
+
+  it("keeps the way back to the journal on every branch", () => {
+    assert.ok(page.includes("{JOURNAL_BACK}"));
+    // Unconfigured, read failure, no such card, and the card itself: each one is a panel with the way back
+    // out of it, so no outcome of this read leaves the person with only the browser's own back button.
+    assert.equal([...page.matchAll(/<BackToJournal \/>/g)].length, 4, "one on every branch of the read");
+  });
+
+  it("only offers an edit for a row the strict schema accepts", () => {
+    const parsed = page.indexOf("sensationCardSchema.safeParse(card)");
+    const offered = page.indexOf("<SavedCardEditor");
+
+    assert.ok(parsed !== -1 && offered !== -1 && parsed < offered, "an unsaveable row is shown, not editable");
+  });
+
+  it("sends the stored card and an identity that came from the page, never from a field", () => {
+    assert.ok(editor.includes("cardWithEdits(card, { sentence, region })"), "the stored card, with two fields replaced");
+    assert.ok(editor.includes("saveEditedCard(identity,"));
+    assert.equal(editor.includes("cardId:"), false, "no id is ever taken from what the person typed");
+  });
+
+  it("refreshes only after a confirmed update, and says plainly when it fails", () => {
+    const failed = editor.indexOf('setState("failed")');
+    const refresh = editor.indexOf("router.refresh()");
+
+    assert.ok(failed !== -1 && refresh !== -1 && failed < refresh, "the failure path returns before the refresh");
+    assert.ok(editor.includes("CARD_EDIT_FAILED"));
+    assert.ok(editor.includes("CARD_EDIT_SAVED"));
+  });
+
+  it("keeps editing controls out of the card renderer", () => {
+    // The card is a block of fields rather than a page - the print/export sheet will reuse it - so no
+    // control may live inside it, and none does.
+    assert.equal(source("src/components/CardView.tsx").includes("onClick"), false);
+  });
+});
+
+describe("the way past a question with no words for it (ISS-25)", () => {
+  const chat = source(CHAT);
+
+  it("is a real control that sends an empty answer", () => {
+    assert.ok(chat.includes('id="interview-unsure"'));
+    assert.ok(chat.includes("onClick={() => void unsure()}"));
+    assert.ok(chat.includes('answerRequest(flow, "", regionLabel, description)'));
+    assert.ok(chat.includes('answersWith(flow, "")'));
+  });
+
+  it("leaves the answered path exactly as it was", () => {
+    assert.ok(chat.includes("const readyToSend = text.trim().length > 0 && !busy;"));
+    assert.ok(chat.includes("disabled={!readyToSend}"));
+  });
+});

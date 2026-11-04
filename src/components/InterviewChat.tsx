@@ -34,6 +34,8 @@ import {
   INTERVIEW_PROGRESS,
   INTERVIEW_RETRY,
   INTERVIEW_STEP_LABEL,
+  INTERVIEW_UNSURE,
+  INTERVIEW_UNSURE_NOTE,
   INTERVIEW_VOCABULARY_NOTE,
   INTERVIEW_VOCABULARY_SUMMARY,
   INTERVIEW_VOCABULARY_WORD_LABEL,
@@ -568,6 +570,38 @@ export default function InterviewChat({
     await send(last.request, last.previous);
   }
 
+  /**
+   * Move on without answering (`ISS-25`).
+   *
+   * The field's own submit needs words, and until now it was the only way forward: a person who had no
+   * words for a question had to write something to continue, which is how "Don't know how to describe
+   * it" ended up as a card's own sentence. This sends the question **unanswered** instead - the same
+   * request, with an empty text - so the card says "Not answered yet" for it and nothing is invented.
+   *
+   * Nothing about the turn changes except the missing words: the route screens an empty answer exactly
+   * as it screens any other, the question keeps its place in the sequence, the answers already given
+   * travel unchanged, and the card is worded from them alone. An unanswered question contributes no
+   * word, no comparison and no duration, because an empty text is filtered out of the card's material
+   * rather than guessed at.
+   */
+  async function unsure() {
+    if (busy || question === null) return;
+
+    const request = answerRequest(flow, "", regionLabel, description);
+
+    if (request === null) return;
+
+    const previous: InterviewFlowState = {
+      phase: "asking",
+      question,
+      answers: answersWith(flow, ""),
+      asked: askedOf(flow),
+    };
+
+    setText("");
+    await send(request, previous);
+  }
+
   /** Open the answers already given for revision. Nothing is sent until "Save changes". */
   function startEditing() {
     const revision = revisionOf(flow);
@@ -854,9 +888,26 @@ export default function InterviewChat({
             what makes it theirs; the note says so, and the field stays theirs to edit either way. */}
         <VocabularyHelper candidates={vocabularyFor(question.id)} value={text} onChange={setText} busy={busy} />
 
-        <Button id="interview-submit" type="submit" disabled={!readyToSend} className="self-start">
-          {INTERVIEW_ANSWER_SUBMIT}
-        </Button>
+        <div className="flex flex-wrap gap-3">
+          <Button id="interview-submit" type="submit" disabled={!readyToSend} className="self-start">
+            {INTERVIEW_ANSWER_SUBMIT}
+          </Button>
+
+          {/* The honest way past a question with no words for it (`ISS-25`). It is a secondary control,
+              because answering is still the main path - but it is always available, so nobody has to
+              invent words to reach the end of the interview. */}
+          <Button
+            id="interview-unsure"
+            type="button"
+            variant="secondary"
+            onClick={() => void unsure()}
+            disabled={busy}
+          >
+            {INTERVIEW_UNSURE}
+          </Button>
+        </div>
+
+        <p className="text-meta leading-5 text-ink-muted">{INTERVIEW_UNSURE_NOTE}</p>
 
         {busy ? (
           <p role="status" className="text-meta text-ink-muted">

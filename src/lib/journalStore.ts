@@ -294,3 +294,102 @@ export async function readJournalCard(
     return { ok: false, detail: `the card read failed (${errorName(error)})` };
   }
 }
+
+/**
+ * The columns a saved card's own page reads: the five content columns plus the session the card belongs
+ * to (`ISS-25`).
+ *
+ * The session id is what an edit needs to address the row that already exists (`ISS-24`). The view that
+ * session recorded is a second, small read of its own (`readSessionView`) rather than an embedded select,
+ * because it is allowed to fail: a card whose session cannot be read is still shown exactly as it was
+ * before this work, and only the editor is withheld.
+ */
+export const CARD_DETAIL_SELECT = `${CARD_SELECT},session_id`;
+
+/**
+ * One saved card with what its own page needs: the record, its session, and that session's view.
+ *
+ * `view` is null when the session's own row could not be read. The page then shows the card and no
+ * editor - never a guessed view, because a view the person never had is worse than no editor at all.
+ */
+export type JournalCardDetail = {
+  record: JournalCardRecord;
+  sessionId: string;
+  view: "front" | "back" | null;
+};
+
+export type ReadJournalDetailResult =
+  | { ok: true; card: JournalCardDetail | null }
+  | { ok: false; detail: string };
+
+/**
+ * The view one session recorded, or null when it cannot be read. Never a guess, and never an error: this
+ * is the one part of the card's page that is allowed to be missing.
+ */
+async function readSessionView(
+  config: JournalConfig,
+  sessionId: string,
+  fetchImpl: typeof fetch,
+): Promise<"front" | "back" | null> {
+  try {
+    const response = await fetchImpl(
+      `${config.baseUrl}/rest/v1/sessions?select=view&id=eq.${sessionId}&limit=1`,
+      { method: "GET", headers: headersFor(config, null) },
+    );
+
+    if (response.status !== 200) return null;
+
+    const value = JSON.parse(await response.text()) as unknown;
+
+    if (!Array.isArray(value) || value.length === 0) return null;
+
+    const view = (value[0] as { view?: unknown }).view;
+
+    return view === "front" || view === "back" ? view : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One card with its identity, or null when this user has no such card.
+ *
+ * The same rules as `readJournalCard`: the id is validated before it reaches a query, the answer is the
+ * caller's own rows or nothing, and a row this build cannot read is a failure rather than something to be
+ * shown. The session read is the one exception, and it degrades rather than fails - the card is the
+ * person's record and it must render whether or not the editor can be offered.
+ */
+export async function readJournalCardDetail(
+  config: JournalConfig,
+  id: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ReadJournalDetailResult> {
+  if (!isCardId(id)) return { ok: true, card: null };
+
+  try {
+    const response = await fetchImpl(
+      `${config.baseUrl}/rest/v1/cards?select=${CARD_DETAIL_SELECT}&id=eq.${id}&limit=1`,
+      { method: "GET", headers: headersFor(config, null) },
+    );
+    const text = await response.text();
+
+    if (response.status !== 200) return { ok: false, detail: `the card read answered ${response.status}` };
+
+    const value = JSON.parse(text) as unknown;
+
+    if (!Array.isArray(value)) return { ok: false, detail: "the card read was not a list" };
+    if (value.length === 0) return { ok: true, card: null };
+
+    const row: unknown = value[0];
+
+    if (!isJournalCardRecord(row)) return { ok: false, detail: "the saved row was not a card this build can read" };
+
+    const carried = (row as { session_id?: unknown }).session_id;
+    const sessionId = typeof carried === "string" ? carried : "";
+    const view = isCardId(sessionId) ? await readSessionView(config, sessionId, fetchImpl) : null;
+
+    return { ok: true, card: { record: row, sessionId, view } };
+  } catch (error) {
+    return { ok: false, detail: `the card read failed (${errorName(error)})` };
+  }
+}

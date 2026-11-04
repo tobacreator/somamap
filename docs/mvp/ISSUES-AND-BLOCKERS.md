@@ -34,6 +34,7 @@ owner can decide in one pass.
 | `ISS-13` | **P1** | No zone can be 44x44 px on a phone: the neck is 7.6% of the figure's width | Touch-target criterion | **OPEN — proven impossible.** See §4 |
 | `ISS-23` | **P1** | The vocabulary helper showed one list on every question, and the words of "I don't know" were shown as chosen vocabulary | Card credibility, and whether the helper helps at all | **RESOLVED 2026-11-04** — the group follows the question; the comparison question offers the bank's own phrases; the words of not knowing leave `quality_words` |
 | `ISS-24` | **P1** | Editing the answers or changing the region saved a **second** journal entry for one check-in (four rows for one check-in were measured) | The journal's credibility: the count is the product's only history | **RESOLVED 2026-11-04** — a rebuild updates the card and its session in place; the ids travel with the session that survives the remount; a new check-in still inserts |
+| `ISS-25` | **P0** | A saved card was a dead end: the detail page offered "Back to journal" and nothing else, so a person could not correct their own words or the region — and the interview required words on every question, which is how "Don't know how to describe it" became a card's own sentence | The core promise: the card is the product's output, and a person who cannot revise it does not own it | **RESOLVED 2026-11-04** — the card's page edits the person's sentence and the region in place through the update path; the interview accepts "not sure" without inventing a word |
 
 ---
 
@@ -480,5 +481,58 @@ region — taking the count from 2 to 6.
   reading the check-in's own turns.
 - **Not fixed, by decision.** The four existing duplicate rows are untouched; cleaning them up is a
   separate decision for the owner.
+
+---
+
+## 8. `ISS-25` — the saved card could not be edited, and the interview required words (P0, fixed 2026-11-04)
+
+**Reported by the founder** from the protected Preview, with the card's id (`0212412f-…`) and its rows:
+sentence "Don't know how to describe it", region `shoulder`, word `tight`, comparison "a heavy knock".
+Opening the card from the journal worked; the only action on it was "Back to journal".
+
+- **Root cause (the read-only page).** `src/app/journal/[id]/page.tsx` rendered `CardView` and
+  `BackToJournal` and nothing else: no edit control, no region control, no path back into the interview.
+  The product's only editing lived in `src/components/InterviewChat.tsx`, on the card screen it shows when
+  the interview completes - `Edit my answers` (`startEditing` → the revision draft → `saveEdits` →
+  `replay`) and `Change the region` (`onBack` → the check-in step). That screen is reachable **only** from
+  `/checkin` and **only** with the session in memory (`resume={session}`), and the journal stores the card
+  and the session's `region_label`/`view` - not the interview's questions and answers. A card opened from
+  the journal therefore had nothing to resume, and rebuilding answers from its five rows would have
+  invented answers the person never gave (iron rule 4).
+- **Second half, found in the same card.** The interview's answer field required text on every question
+  (`readyToSend = text.trim().length > 0 && !busy`, and the hint read "Type a few words to continue."), so
+  a person with no words for a question had to write something to move on. The founder's sentence -
+  "Don't know how to describe it" - is that coercion, preserved faithfully by a product that then offered
+  no way to revise it.
+- **Impact.** The card is the product's output. A card that cannot be corrected is not the person's own,
+  and the promise was half-delivered: the interview helped them find words and then froze the result.
+- **What must NOT be done.** No second editing system that re-asks the questions or invents answers; no
+  change to the five-field schema, the bank, the crisis shield, consent, the provider configuration, the
+  migration or RLS; no duplicate card when a card is edited; the four existing duplicate rows are left
+  alone.
+- **Fix, part one - the card's own page edits the card.** The read now also brings back the card's
+  `session_id` and the view its session recorded (`readJournalCardDetail`; the session read is a second,
+  small request that is *allowed to fail*, so a card whose view cannot be read still renders - with no
+  editor rather than a guessed one). A new `SavedCardEditor` offers **Edit this card**: the person's own
+  sentence, and the region through the same fixed map the check-in uses. It saves through the **update**
+  path built for `ISS-24`, so the row the card already occupies is the row that changes; the other three
+  fields travel exactly as stored (`cardWithEdits`); a failure says plainly that nothing was saved and
+  keeps what was typed; and the page refreshes only after a confirmed 200 naming the same card.
+- **Fix, part two - the interview accepts "not sure".** A secondary control sends the question
+  **unanswered** - the same request with an empty text - so the card says "Not answered yet" for it.
+  Nothing is invented: an empty answer contributes no word, no comparison and no duration, and the answers
+  that were given are worded exactly as before.
+- **Evidence.** `npm run test:unit` — **538/538 pass** (23 new); `npm test` — red-team **8 PASS, 0 FAIL**
+  (T1/T2/T4 unchanged); `npx tsc --noEmit`, `npm run lint` (0 errors) and `npm run build` green; the
+  harness reports **189 passed / 43 failed of 232**, the 43 being exactly the documented baseline set
+  (`T1.zone44`/`T2.control44` = `ISS-13`, `D1.firstScreen`/`D2.scrolling`/`D3.focus` = `ISS-07`,
+  `S4.side`/`N1.figure`/`N2.views` = `ISS-09`), with two new gates passing: **`J5.rebuild`** (a region
+  change rebuilds the card exactly once) and **`J6.unsure`** ("question 1 skipped with an empty answer;
+  card reached; the sentence and the comparison are intact").
+- **Not verified here.** The signed-in acceptance journey - open the saved card, edit it, save, change the
+  region, save, confirm one entry, then start a new check-in and confirm a second - needs a session this
+  workspace does not have, and the harness runs unsigned-in by design (`ISS-17`), so it can drive the
+  interview but never the write. **It was not exercised, and is not claimed.**
+
 
 

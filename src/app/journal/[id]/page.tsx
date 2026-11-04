@@ -7,11 +7,13 @@ import { Suspense } from "react";
 import CardView from "@/components/CardView";
 import Panel from "@/components/Panel";
 import PaperPage from "@/components/PaperPage";
+import SavedCardEditor from "@/components/SavedCardEditor";
 import Screen from "@/components/Screen";
 import { CARD_TITLE, JOURNAL_BACK, JOURNAL_LOAD_FAILED, JOURNAL_LOADING, JOURNAL_NOT_FOUND } from "@/lib/copy";
 import { currentSession, supabaseTarget } from "@/lib/authSession";
 import { cardPayloadFromRecord } from "@/lib/journal";
-import { readJournalCard } from "@/lib/journalStore";
+import { readJournalCardDetail } from "@/lib/journalStore";
+import { sensationCardSchema } from "@/lib/schema";
 
 /**
  * One saved card.
@@ -23,6 +25,12 @@ import { readJournalCard } from "@/lib/journalStore";
  * fallback if they do not pass, keeps the user's own sentence verbatim, and shows "Not answered yet" for
  * a field that was never answered rather than inventing a value - the duration row is left out entirely
  * while no duration was collected.
+ *
+ * `ISS-25`: the card used to be a dead end - readable, and nothing else - because the only editing in the
+ * product lived in the interview screen, which can be reached only with the session that produced the
+ * card and that session is not stored. The read below therefore also brings back the card's session and
+ * the map view that session recorded, and `SavedCardEditor` uses them to update this row in place: the
+ * person's own sentence and the place they feel it, with the other three fields handed on untouched.
  *
  * Every outcome renders inside this screen's shell, so the fixed line is on the page whichever way the
  * read goes. That is also why a missing card is a panel here rather than a framework 404: the 404 page
@@ -58,6 +66,7 @@ async function SavedCardBody({ params }: { params: Promise<{ id: string }> }) {
         <p role="alert" className="text-body text-ink">
           {JOURNAL_LOAD_FAILED}
         </p>
+        <BackToJournal />
       </Panel>
     );
   }
@@ -66,7 +75,7 @@ async function SavedCardBody({ params }: { params: Promise<{ id: string }> }) {
 
   if (!session) redirect("/sign-in");
 
-  const result = await readJournalCard(
+  const result = await readJournalCardDetail(
     {
       baseUrl: resolution.target.baseUrl,
       anonKey: resolution.target.anonKey,
@@ -85,11 +94,12 @@ async function SavedCardBody({ params }: { params: Promise<{ id: string }> }) {
         <p role="alert" className="text-body text-ink">
           {JOURNAL_LOAD_FAILED}
         </p>
+        <BackToJournal />
       </Panel>
     );
   }
 
-  if (result.record === null) {
+  if (result.card === null) {
     return (
       <Panel>
         <p className="text-body text-ink">{JOURNAL_NOT_FOUND}</p>
@@ -98,9 +108,28 @@ async function SavedCardBody({ params }: { params: Promise<{ id: string }> }) {
     );
   }
 
+  const card = cardPayloadFromRecord(result.card.record);
+  const view = result.card.view;
+  /**
+   * Whether this row may be offered for editing. Two things must hold: the session's own view had to be
+   * readable (an edit would otherwise have to invent one), and the row must pass the strict five-field
+   * schema the route puts every write through - a row that does not could never be saved back, and
+   * offering an edit would promise something the write would refuse. Either way the card itself is still
+   * shown, exactly as it was before this screen could edit anything.
+   */
+  const editable = view !== null && sensationCardSchema.safeParse(card).success;
+
   return (
     <>
-      <CardView payload={cardPayloadFromRecord(result.record)} />
+      <CardView payload={card} />
+
+      {editable && view !== null ? (
+        <SavedCardEditor
+          card={card}
+          identity={{ cardId: result.card.record.id, sessionId: result.card.sessionId }}
+          view={view}
+        />
+      ) : null}
 
       <BackToJournal />
     </>

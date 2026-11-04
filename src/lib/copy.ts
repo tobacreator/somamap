@@ -94,7 +94,23 @@ export const INTERVIEW_NOTE =
  * Shown while the answer field is empty, so the disabled Continue button explains itself instead of
  * looking broken (Phase B; the only string this phase adds, approved by the product owner).
  */
-export const INTERVIEW_ANSWER_HINT = "Type a few words to continue.";
+export const INTERVIEW_ANSWER_HINT = "Type a few words, or say you are not sure yet.";
+
+/**
+ * The way past a question a person cannot answer yet (`ISS-25`).
+ *
+ * The interview used to require words on every question: the submit button stayed disabled until
+ * something was typed, and the hint said so. A person who had no words for a question therefore had to
+ * write something to move on - which is how "Don't know how to describe it" ended up as a card's own
+ * sentence, with the product having asked for a description it never got.
+ *
+ * This is the honest alternative. The question is left unanswered, the card says "Not answered yet" for
+ * it, and nothing is invented: an unanswered question contributes no word to the card, and the answers
+ * that were given are worded exactly as before. The second line is a promise the app can now keep -
+ * a saved card can be edited (`ISS-25`) - so it is safe to say.
+ */
+export const INTERVIEW_UNSURE = "Not sure about this one";
+export const INTERVIEW_UNSURE_NOTE = "Leaving a question unanswered is allowed. You can edit your card later.";
 
 /**
  * The vocabulary helper (`ISS-22`).
@@ -234,6 +250,30 @@ export const CARD_NOT_ANSWERED = "Not answered yet";
  */
 export const CARD_EDIT = "Edit my answers";
 export const CARD_CHANGE_REGION = "Change the region";
+
+/**
+ * Editing a saved card (`ISS-25`).
+ *
+ * A card in the journal used to be readable and nothing else. These are the words for the two things a
+ * person can revise without being asked anything again - their own sentence, and where they feel it -
+ * and for the failure line, which says what happened rather than what the product hopes happened. The
+ * note is the honest scope: the other three rows are not touched by this screen.
+ */
+export const CARD_EDIT_OPEN = "Edit this card";
+export const CARD_EDIT_SENTENCE_LABEL = "In your words";
+export const CARD_EDIT_SENTENCE_HINT =
+  "Your own words, exactly as you want them kept. Leave it blank if you would rather say nothing here.";
+export const CARD_EDIT_REGION_LABEL = "Where you feel it";
+export const CARD_EDIT_REGION_PLACEHOLDER = "Type where it is, or tap the map.";
+export const CARD_EDIT_REGION_HINT = "Leave it blank if you would rather not name a place.";
+export const CARD_EDIT_NOTE =
+  "This screen changes your sentence and the place. The words you chose, your comparison and how long stay exactly as they are.";
+export const CARD_EDIT_SAVE = "Save changes";
+export const CARD_EDIT_SAVING = "Saving your changes...";
+export const CARD_EDIT_SAVED = "Your card has been updated.";
+export const CARD_EDIT_FAILED =
+  "That change was not saved, so your card is unchanged. What you typed is still here - try again when you are ready.";
+export const CARD_EDIT_CANCEL = "Keep it as it was";
 export const CARD_START_NEW = "Start a new check-in";
 export const CARD_START_NEW_CONFIRM =
   "Start a new check-in? This clears the answers on this screen, and nothing was saved.";

@@ -5,6 +5,7 @@ import {
   isCardId,
   listJournalCards,
   readJournalCard,
+  readJournalCardDetail,
   saveJournalCard,
   updateJournalCard,
   type JournalConfig,
@@ -385,5 +386,87 @@ describe("updating a saved card (ISS-24)", () => {
     }) as unknown as typeof fetch;
 
     assert.equal((await updateJournalCard(CONFIG, CARD, "front", IDENTITY, fetchImpl)).ok, false);
+  });
+});
+
+/**
+ * Reading one card with what its own page needs (`ISS-25`).
+ *
+ * A saved card could be read and left. Making it editable needs two more things from the same read: the
+ * session the card belongs to, which is what addresses the row on an update (`ISS-24`), and the map view
+ * that session recorded, so the edit sends back the view the person actually had rather than a guess.
+ *
+ * The session read is the one part allowed to fail. A card whose view cannot be read still renders - it
+ * simply has no editor - because a guessed view would be worse than no editor at all, and because the card
+ * is the person's own record and must not depend on a second request.
+ */
+describe("reading one card for its own page (ISS-25)", () => {
+  const DETAIL_ROW = JSON.stringify([{ id: CARD_ID, created_at: "2026-11-02T10:00:00.000Z", ...CARD, session_id: SESSION_ID }]);
+  const SESSION_ROW_VIEW = JSON.stringify([{ view: "back" }]);
+
+  it("reads the card, its session id and the session's view", async () => {
+    const { calls, fetchImpl } = recordingFetch([
+      { status: 200, body: DETAIL_ROW },
+      { status: 200, body: SESSION_ROW_VIEW },
+    ]);
+
+    const result = await readJournalCardDetail(CONFIG, CARD_ID, fetchImpl);
+
+    assert.equal(result.ok, true);
+    assert.equal(calls.length, 2, "the card, then its session");
+    assert.ok(calls[0].url.includes("session_id"));
+    assert.ok(calls[0].url.includes(`id=eq.${CARD_ID}`));
+    assert.ok(calls[1].url.includes("/rest/v1/sessions?select=view"));
+    assert.ok(calls[1].url.includes(`id=eq.${SESSION_ID}`));
+
+    if (!result.ok || result.card === null) {
+      assert.fail("the detail read must answer with the card");
+    }
+
+    assert.equal(result.card.sessionId, SESSION_ID);
+    assert.equal(result.card.view, "back");
+    assert.equal(result.card.record.location_label, CARD.location_label);
+    assert.deepEqual(result.card.record.quality_words, CARD.quality_words);
+    assert.equal(result.card.record.intensity_metaphor, CARD.intensity_metaphor);
+    assert.equal(result.card.record.user_own_sentence, CARD.user_own_sentence);
+  });
+
+  it("still answers with the card when the session cannot be read, and offers no view", async () => {
+    // A refused session read, an empty one, a view the schema does not allow, and a transport failure:
+    // every one of them leaves the card readable and the editor withheld. Nothing is guessed.
+    const replies = [
+      [{ status: 200, body: DETAIL_ROW }, { status: 401, body: "" }],
+      [{ status: 200, body: DETAIL_ROW }, { status: 200, body: "[]" }],
+      [{ status: 200, body: DETAIL_ROW }, { status: 200, body: JSON.stringify([{ view: "side" }]) }],
+      [{ status: 200, body: DETAIL_ROW }, { status: 500, body: "not json" }],
+    ];
+
+    for (const pair of replies) {
+      const { fetchImpl } = recordingFetch(pair);
+      const result = await readJournalCardDetail(CONFIG, CARD_ID, fetchImpl);
+
+      assert.equal(result.ok, true, JSON.stringify(pair));
+      assert.ok(result.ok && result.card !== null, "the card is still there");
+      assert.ok(result.ok && result.card !== null && result.card.view === null, "and no view is invented");
+    }
+  });
+
+  it("answers null without a request when the id is not a uuid", async () => {
+    const { calls, fetchImpl } = recordingFetch([{ status: 200, body: DETAIL_ROW }]);
+
+    assert.deepEqual(await readJournalCardDetail(CONFIG, "not-a-uuid", fetchImpl), { ok: true, card: null });
+    assert.equal(calls.length, 0);
+  });
+
+  it("answers null when this user has no such card", async () => {
+    const { fetchImpl } = recordingFetch([{ status: 200, body: "[]" }]);
+
+    assert.deepEqual(await readJournalCardDetail(CONFIG, CARD_ID, fetchImpl), { ok: true, card: null });
+  });
+
+  it("reports a card read failure rather than an empty card", async () => {
+    const { fetchImpl } = recordingFetch([{ status: 401, body: "" }]);
+
+    assert.equal((await readJournalCardDetail(CONFIG, CARD_ID, fetchImpl)).ok, false);
   });
 });

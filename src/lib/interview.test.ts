@@ -596,3 +596,80 @@ describe("the description the user wrote first (ISS-16/A, correction 1)", () => 
     assert.deepEqual(card.card.quality_words, ["tight", "heavy"]);
   });
 });
+
+/**
+ * A question left unanswered (`ISS-25`).
+ *
+ * The screen used to require words on every question - the submit button stayed disabled until something
+ * was typed - and the founder's own session shows what that produced: "Don't know how to describe it"
+ * as a card's own sentence. The interview now lets a question go past unanswered, so these tests hold the
+ * two promises that make that safe: the interview still reaches its card, and the unanswered question
+ * contributes nothing to it.
+ */
+describe("a question left unanswered (ISS-25)", () => {
+  const NO_WORDS = "Don't know how to describe it";
+
+  it("moves the interview on, and the card holds only what was actually given", async () => {
+    let result = await acknowledgedTurn({ answers: [], regionLabel: "shoulder", description: NO_WORDS }, deps());
+
+    assert.equal(result.status, "asking");
+
+    // Three turns, each one skipped: an empty text, exactly as the screen sends it.
+    for (let step = 1; step <= QUESTIONS_PER_SESSION; step += 1) {
+      const given = "answers" in result ? result.answers : [];
+
+      result = await acknowledgedTurn(
+        { answers: given, text: "", regionLabel: "shoulder", description: NO_WORDS },
+        deps(),
+      );
+    }
+
+    assert.equal(result.status, "complete", "an interview of unanswered questions still reaches its card");
+
+    if (result.status !== "complete") return;
+
+    // Nothing is invented to fill the rows nobody answered.
+    assert.deepEqual(result.card.quality_words, []);
+    assert.equal(result.card.intensity_metaphor, "");
+    assert.equal(result.card.duration, "");
+
+    // What the person did say is untouched: the region they tapped, and the sentence they wrote first.
+    assert.equal(result.card.location_label, "shoulder");
+    assert.equal(result.card.user_own_sentence, NO_WORDS);
+    assert.deepEqual(Object.keys(result.card).sort(), [
+      "duration",
+      "intensity_metaphor",
+      "location_label",
+      "quality_words",
+      "user_own_sentence",
+    ]);
+  });
+
+  it("does not turn the question it skipped into a word, when the others were answered", async () => {
+    const first = await acknowledgedTurn({ answers: [], regionLabel: "shoulder" }, deps());
+
+    assert.equal(first.status, "asking");
+
+    const skipped = await acknowledgedTurn({ answers: answersFor(["tight"]), text: "", regionLabel: "shoulder" }, deps());
+
+    assert.equal(skipped.status, "asking", "the turn is accepted rather than refused");
+
+    const done = await acknowledgedTurn(
+      { answers: answersFor(["tight", ""]), text: "a heavy knock", regionLabel: "shoulder" },
+      deps(),
+    );
+
+    assert.equal(done.status, "complete");
+
+    if (done.status !== "complete") return;
+
+    // The comparison they gave is on the card, and the word they gave is quoted as their sentence rather
+    // than listed again below it (correction 3: a vocabulary row that only repeats a row the card already
+    // shows adds nothing). The skipped question contributed nothing of its own either way.
+    assert.equal(done.card.intensity_metaphor, "a heavy knock");
+    assert.equal(done.card.user_own_sentence, "tight");
+    assert.deepEqual(done.card.quality_words, []);
+    assert.equal(done.card.duration, "");
+    assert.equal(done.card.location_label, "shoulder");
+  });
+});
