@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { modelTextCarriesProhibited } from "./draftGuard.ts";
-import { QUESTION_BANK } from "./questionBank.ts";
+import { COMPARISON_QUESTION_ID, QUESTION_BANK, questionById } from "./questionBank.ts";
 import { vocabularyFor, type VocabularyCandidate } from "./vocabulary.ts";
 
 /**
@@ -29,11 +29,16 @@ import { vocabularyFor, type VocabularyCandidate } from "./vocabulary.ts";
  *   2. **The options are possibilities, not conclusions.** They are offered as tappable suggestions; a
  *      word becomes the person's own only when they tap it (`addWordToAnswer`), exactly as the reviewed
  *      vocabulary already works. Nothing here writes to the card, and nothing here is stored.
- *   3. **Every reply is validated here, independently of what the model claims.** The id must be a bank
- *      id the session has not asked; each option must be short, plain, distinct and free of the
- *      prohibited shapes a card's model-worded fields are already checked against. A reply that fails
- *      any of that is replaced by the reviewed fallback - the sequence's own next question and that
- *      question's own reviewed vocabulary - so a bad reply costs the person nothing.
+ *   3. **Every reply is validated here, independently of what the model claims.** The id must be one the
+ *      prompt actually offered; each option must be short, plain, distinct and free of the prohibited
+ *      shapes a card's model-worded fields are already checked against.
+ *   4. **The reviewed vocabulary is the floor, and the model's words are added on top** (`ISS-28`). Every
+ *      reviewed question already names the words that answer it - "smooth, rough, tight, or loose" for the
+ *      texture question, "in one spot" and "spreading out" for the distribution question - and a model
+ *      asked for a few plain words can drift away from the question it just chose, which is exactly what
+ *      the owner saw live. So the words offered are always the question's own reviewed list, plus whatever
+ *      the model wrote that the list does not already say. A reply that adds nothing new is not a failure:
+ *      the person still gets words that fit the question in front of them.
  *
  * This is an **interview** reply, not a journal-card shape: no card field is added, and the five-field
  * schema is untouched.
@@ -42,8 +47,14 @@ import { vocabularyFor, type VocabularyCandidate } from "./vocabulary.ts";
 /** The most options the person is ever shown at once. A short list is a help; a long one is a test. */
 export const GUIDE_OPTION_LIMIT = 4;
 
-/** Fewer than this and the reply is not a usable set of suggestions; the reviewed list stands in. */
-export const GUIDE_OPTION_MINIMUM = 2;
+/**
+ * The most options shown in total, once the question's own reviewed words are included (`ISS-28`).
+ *
+ * The reviewed groups run from two words to eight (the colour question offers the general list), and a
+ * reviewed word is never dropped to make room for a model's - it is the one set known to answer the
+ * question. So this cap only bounds what the model may add on top.
+ */
+export const GUIDE_TOTAL_OPTION_LIMIT = 8;
 
 /** The longest a model-written option word, and its explanation, may be. */
 const WORD_MAX = 24;
@@ -73,15 +84,31 @@ export type GuideOutcome = {
 };
 
 /**
- * The ids the model may choose from: every reviewed question this session has not asked yet.
+ * The ids the model may choose from: every reviewed question this session has not asked yet - and, on the
+ * session's last asking turn, only the comparison question when it has not been asked.
  *
- * The whole bank, not the shipped three: the point of a guided turn is that the choice follows what the
- * person said, and a session already asked about texture may be better served by the question about
- * size. Every id here is reviewed copy, so the freedom is about *which* approved question comes next,
- * never about what it says.
+ * Two rules, and the second is what keeps the finished card whole:
+ *
+ *   1. **no repeat.** A question the session has already asked is not offered again. Every id here is
+ *      reviewed copy, so the freedom is about *which* approved question comes next, never about what it
+ *      says.
+ *   2. **coverage** (`ISS-28`). The card's `intensity_metaphor` row can only be filled by an answer that is
+ *      genuinely a comparison, and the question that invites one is `COMPARISON_QUESTION_ID`. When this is
+ *      the last asking turn and that question has not been asked, it becomes the only choice - because the
+ *      alternative is a card with a row the person was never invited to fill, which is exactly what the
+ *      owner saw live. `ISS-02` fixed this for the *reviewed sequence*; the guided choice was still free to
+ *      skip the question, so the fix has to live here, where the choice is actually made.
+ *
+ * `remainingTurns` is how many asking turns come **after** this one: 0 on the session's last question. A
+ * caller that does not know it gets rule 1 alone, which is what every caller before `ISS-28` got.
  */
-export function guideChoicesFor(asked: readonly string[]): readonly string[] {
-  return QUESTION_BANK.map((question) => question.id).filter((id) => !asked.includes(id));
+export function guideChoicesFor(asked: readonly string[], remainingTurns?: number): readonly string[] {
+  const available = QUESTION_BANK.map((question) => question.id).filter((id) => !asked.includes(id));
+  const comparisonStillNeeded = remainingTurns === 0 && !asked.includes(COMPARISON_QUESTION_ID);
+
+  return comparisonStillNeeded && available.includes(COMPARISON_QUESTION_ID)
+    ? [COMPARISON_QUESTION_ID]
+    : available;
 }
 
 /** The reviewed fallback: the sequence's own next question, and that question's own reviewed words. */
@@ -121,31 +148,47 @@ function usableOption(
  * used. The reply is validated whole and then option by option; anything unusable is replaced by the
  * reviewed fallback, and the person never sees an error because a model had a bad turn.
  */
-export function guideFromReply(reply: unknown, asked: readonly string[], fallbackQuestionId: string): GuideOutcome {
+export function guideFromReply(
+  reply: unknown,
+  asked: readonly string[],
+  fallbackQuestionId: string,
+  choices: readonly string[] = guideChoicesFor(asked),
+): GuideOutcome {
   const parsed = guideReplySchema.safeParse(reply);
 
   if (!parsed.success) return fallbackGuide(fallbackQuestionId);
 
   const questionId = parsed.data.question_id.trim();
 
-  // The model chooses; it does not write. An id outside the bank, or one already asked, is not a choice
-  // this product can accept.
-  if (!guideChoicesFor(asked).includes(questionId)) return fallbackGuide(fallbackQuestionId);
+  // The model chooses; it does not write, and it may only choose from what it was offered. The list is
+  // passed in rather than derived again, so the id is judged against exactly the ids the prompt carried -
+  // which is how the coverage rule on the session's last turn is enforced as well as offered (`ISS-28`).
+  if (!choices.includes(questionId)) return fallbackGuide(fallbackQuestionId);
 
-  const options: VocabularyCandidate[] = [];
+  /**
+   * The words offered: the chosen question's own reviewed vocabulary first, then whatever the model wrote
+   * that the list does not already say (`ISS-28`).
+   *
+   * The reviewed list is the floor and is never shortened - it is the one set known to answer the question
+   * - and `usableOption` is handed the list built so far, so a model word that repeats a reviewed one, or
+   * another model word, is dropped rather than shown twice. A reply whose words all add nothing leaves the
+   * person with exactly the reviewed list, which is what the fallback would have given them.
+   */
+  const options: VocabularyCandidate[] = [...vocabularyFor(questionId)];
 
   for (const option of parsed.data.options) {
+    if (options.length >= GUIDE_TOTAL_OPTION_LIMIT) break;
+
     const usable = usableOption(option, options);
 
     if (usable !== null) options.push(usable);
   }
 
-  if (options.length < GUIDE_OPTION_MINIMUM) {
-    // The question the model chose is kept - choosing a question is entirely inside the bank - and the
-    // words fall back to that question's own reviewed vocabulary.
-    return { questionId, options: vocabularyFor(questionId), source: "fallback" };
-  }
-
+  /**
+   * `source` says the reply was **used**, not that it was interesting: the question it chose stands, and
+   * the person is never shown a claim about where a word came from. Reaching this line means the reply
+   * passed the strict shape and named a question the prompt offered.
+   */
   return { questionId, options, source: "model" };
 }
 
@@ -159,9 +202,14 @@ export type GuidePromptInput = {
 };
 
 /**
- * The user message for a guided turn: the person's material, the ids already asked, and the ids to choose
- * from - and nothing else. Built by hand from named fields, like the card request, so a future field
- * cannot travel by accident.
+ * The user message for a guided turn: the person's material, the ids already asked, and the candidate
+ * questions - each with the wording it would be asked in (`ISS-28`). Built by hand from named fields, like
+ * the card request, so a future field cannot travel by accident.
+ *
+ * The wording was added because bare ids let the model choose a question without knowing what it asked, and
+ * then write words for a different one - which is how generic texture words ended up offered under the
+ * distribution question. Every question here is the bank's own text, read from `questionBank.ts`; the model
+ * is never asked to write one.
  */
 export function guidePromptFor(input: GuidePromptInput): string {
   return JSON.stringify({
@@ -169,7 +217,7 @@ export function guidePromptFor(input: GuidePromptInput): string {
     description: input.description,
     answers: input.answers.map((answer) => ({ questionId: answer.questionId, text: answer.text })),
     already_asked: [...input.asked],
-    choose_one_of: [...input.choices],
+    choose_one_of: input.choices.map((id) => ({ id, question: questionById(id)?.text ?? "" })),
   });
 }
 
@@ -185,10 +233,11 @@ export const GUIDE_SYSTEM_INSTRUCTION = [
   "You help a person find words for a body sensation they are describing.",
   "You are not a clinician. You never say what a sensation means, never name a cause, and never advise.",
   "",
-  "You will be given the person's own words, the questions already asked, and a list of question ids.",
+  "You will be given the person's own words, the questions already asked, and a list of candidate questions.",
+  "Each candidate has the id you must name it by, and the wording the person would read.",
   "Reply with one JSON object and nothing else. It has exactly these two keys:",
   '- "question_id": one id copied exactly from the list you were given. Choose the question that would help this person most next, given what they have already said. Never write a question of your own.',
-  '- "options": three or four objects, each with "word" and "meaning". Each word describes how a sensation feels, behaves or is shaped - texture, movement, steadiness, size, surface or depth. Each meaning is one short plain sentence a person would understand at a glance.',
+  '- "options": three or four objects, each with "word" and "meaning". Write them to answer the question you chose: a word offered under a question about where a sensation sits describes where it sits, a word offered under a question about steadiness describes steadiness, and so on. Each meaning is one short plain sentence a person would understand at a glance.',
   "",
   "The options are possibilities the person may borrow, never conclusions about them.",
   "Keep every word to one or two words, and never repeat a word already offered.",

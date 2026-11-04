@@ -243,11 +243,18 @@ async function guidedTurn(
   snapshot: ModelSnapshot,
   asked: readonly string[],
   fallbackQuestionId: string,
+  remainingTurns: number,
 ): Promise<GuideOutcome> {
-  try {
-    const reply = await deps.adapter.guide(snapshot, asked, guideChoicesFor(asked));
+  /**
+   * The ids offered, computed once and used twice: they are what the prompt carries and what the reply is
+   * judged against, so the model cannot be held to a list it was not shown (`ISS-28`).
+   */
+  const choices = guideChoicesFor(asked, remainingTurns);
 
-    return guideFromReply(reply, asked, fallbackQuestionId);
+  try {
+    const reply = await deps.adapter.guide(snapshot, asked, choices);
+
+    return guideFromReply(reply, asked, fallbackQuestionId, choices);
   } catch {
     return fallbackGuide(fallbackQuestionId);
   }
@@ -369,6 +376,13 @@ export async function interviewStep(body: unknown, deps: InterviewDeps): Promise
    * question a person reads is reviewed copy whichever path chose it.
    */
   const fallbackQuestionId = questionForStep(answers.length, deps.adapter).id;
+
+  /**
+   * How many asking turns come after this one (`ISS-28`). Zero means this is the session's last question,
+   * which is the turn the coverage rule uses: a card whose comparison row was never invited is a card with
+   * a gap the person had no way to fill.
+   */
+  const remainingTurns = QUESTIONS_PER_SESSION - (answers.length + 1);
   const guide =
     parsed.asked === null
       ? fallbackGuide(fallbackQuestionId)
@@ -377,6 +391,7 @@ export async function interviewStep(body: unknown, deps: InterviewDeps): Promise
           { answers, regionLabel: userLocationFrom(parsed.regionLabel), description },
           parsed.asked,
           fallbackQuestionId,
+          remainingTurns,
         );
   const question = questionById(guide.questionId) ?? questionForStep(answers.length, deps.adapter);
 

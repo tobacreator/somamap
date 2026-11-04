@@ -10,8 +10,11 @@ import Panel from "@/components/Panel";
 import StepLabel from "@/components/StepLabel";
 import TextField from "@/components/TextField";
 import {
+  ANON_JOURNAL_UNAVAILABLE,
   CARD_CHANGE_REGION,
+  CARD_FROM_REVIEWED_WORDING,
   CARD_EDIT,
+  CARD_FIELD_LABELS,
   CARD_START_NEW,
   CARD_START_NEW_CONFIRM,
   CARD_START_NEW_KEEP,
@@ -27,6 +30,7 @@ import {
   INTERVIEW_ANSWER_PLACEHOLDER,
   INTERVIEW_ANSWER_SUBMIT,
   INTERVIEW_BACK,
+  INTERVIEW_BUSY,
   INTERVIEW_COMPLETING,
   INTERVIEW_ERROR,
   INTERVIEW_LOADING,
@@ -51,6 +55,7 @@ import {
   afterResponse,
   answerRequest,
   answersWith,
+  answersOf,
   askedOf,
   asInFlight,
   currentOptions,
@@ -71,6 +76,7 @@ import {
   type RevisionDraft,
 } from "@/lib/interviewFlow";
 import { withAcknowledgement, type ProcessingMode } from "@/lib/externalProcessing";
+import { addAnonCard, anonCardFrom, tabStorage } from "@/lib/anonJournal";
 import { savedCardFromPayload, type CardIdentity } from "@/lib/journal";
 import { saveIntentFor } from "@/lib/journalSave";
 import type { BodyView } from "@/lib/regions";
@@ -125,7 +131,15 @@ const INTERVIEW_TIMEOUT_MS = 30_000;
 /** Where a completed card is saved (the journal's only write). */
 const JOURNAL_ENDPOINT = "/api/journal";
 
-type PostResult = { ok: true; payload: unknown } | { ok: false; detail: string };
+/**
+ * A route call's outcome.
+ *
+ * `status` carries the HTTP status when the route answered at all, so the screen can tell a refused turn
+ * (`429`) from a genuine failure without reading the detail string. It is null when nothing answered.
+ */
+type PostResult =
+  | { ok: true; payload: unknown }
+  | { ok: false; detail: string; status: number | null };
 
 /**
  * The route call. A refusal or a transport failure is reported as a failure - never turned
@@ -146,11 +160,13 @@ async function postInterview(body: InterviewRequest, mode: ProcessingMode): Prom
       signal: AbortSignal.timeout(INTERVIEW_TIMEOUT_MS),
     });
 
-    if (!response.ok) return { ok: false, detail: `the route answered ${response.status}` };
+    if (!response.ok) {
+      return { ok: false, detail: `the route answered ${response.status}`, status: response.status };
+    }
 
     return { ok: true, payload: (await response.json()) as unknown };
   } catch (error) {
-    return { ok: false, detail: error instanceof Error ? error.name : "unknown" };
+    return { ok: false, detail: error instanceof Error ? error.name : "unknown", status: null };
   }
 }
 
@@ -236,8 +252,14 @@ function VocabularyHelper({
         <p className="text-meta leading-5 text-ink-muted">{INTERVIEW_VOCABULARY_NOTE}</p>
 
         <ul className="flex flex-col gap-1">
-          {candidates.map((candidate) => (
-            <li key={candidate.word}>
+          {candidates.map((candidate, index) => (
+            <li
+              key={candidate.word}
+              className="motion-chip"
+              /* A short stagger, so the eye notices the words changed with the question. Capped at five
+                 steps, which keeps the last chip settled inside the 250 ms the harness waits. */
+              style={{ animationDelay: `${Math.min(index, 5) * 25}ms` }}
+            >
               <button
                 type="button"
                 disabled={busy}
@@ -337,6 +359,15 @@ export default function InterviewChat({
   const [confirmingNew, setConfirmingNew] = useState(false);
   /** The last request and the state it was sent from, so a failure can be retried as it was. */
   const pending = useRef<{ request: InterviewRequest; previous: InterviewFlowState } | null>(null);
+  /**
+   * The line shown when the demo's own guard refused the turn (`ISS-27`), or null.
+   *
+   * It is separate from the flow state on purpose: a refusal is a `failed` phase like any other transport
+   * outcome - the state machine in `interviewFlow.ts` has no other way to say "this turn produced nothing"
+   * - but it is not a failure, so the screen renders a different panel for it. Held here, the decision
+   * stays in this component and no shared state has to learn about budgets.
+   */
+  const [busyNotice, setBusyNotice] = useState<string | null>(null);
   /** False once the screen is gone, so a reply that arrives late is not written into it. */
   const alive = useRef(true);
 
@@ -350,11 +381,19 @@ export default function InterviewChat({
 
   const send = useCallback(async (request: InterviewRequest, previous: InterviewFlowState) => {
     pending.current = { request, previous };
+    setBusyNotice(null);
     setFlow(asInFlight(previous));
 
     const result = await postInterview(request, mode);
 
     if (!alive.current) return;
+
+    /**
+     * A refused turn is shown as its own state rather than as a failure (`ISS-27`). The guard runs before
+     * the state machine, so nothing was worded and nothing was sent to a model - which is what the line
+     * says. Nothing retries: the flow stops, and the panel below offers the way back only.
+     */
+    if (!result.ok && result.status === 429) setBusyNotice(INTERVIEW_BUSY);
 
     setFlow(result.ok ? afterResponse(previous, result.payload) : { phase: "failed", detail: result.detail });
   }, [mode]);
@@ -375,6 +414,8 @@ export default function InterviewChat({
     async (revision: RevisionDraft): Promise<InterviewFlowState | null> => {
       let state: InterviewFlowState | null = null;
 
+      setBusyNotice(null);
+
       for (const step of replayPlan(revision, regionLabel, description)) {
         pending.current = { request: step.request, previous: step.previous };
         setFlow(asInFlight(step.previous));
@@ -382,6 +423,9 @@ export default function InterviewChat({
         const result = await postInterview(step.request, mode);
 
         if (!alive.current) return null;
+
+        // The same refusal handling as `send`: the walk stops, and the panel offers the way back only.
+        if (!result.ok && result.status === 429) setBusyNotice(INTERVIEW_BUSY);
 
         state = result.ok
           ? afterResponse(step.previous, result.payload)
@@ -429,6 +473,9 @@ export default function InterviewChat({
       const result = await postInterview(request, mode);
 
       if (cancelled || !alive.current) return;
+
+      // The first turn can be refused too, and it is shown the same way as any later one.
+      if (!result.ok && result.status === 429) setBusyNotice(INTERVIEW_BUSY);
 
       setFlow(
         result.ok ? afterResponse(EMPTY_INTERVIEW_STATE, result.payload) : { phase: "failed", detail: result.detail },
@@ -497,7 +544,21 @@ export default function InterviewChat({
       const intent = saveIntentFor(canSave);
 
       if (!intent.attempt) {
-        setSaveNotice(intent.notice);
+        /**
+         * No account, so the card goes into this tab's own journal instead (`ISS-28`).
+         *
+         * Nothing is sent anywhere: `addAnonCard` writes to the browser's `sessionStorage`, and the card is
+         * already on screen because the route produced it. The interview's promise - that an anonymous
+         * check-in leaves no row in a database - is untouched, and the person gets a journal they can look
+         * at before deciding whether to make an account. The notice says exactly where the card is and that
+         * it is temporary.
+         */
+        const card = savedCardFromPayload(flow.card);
+        const record = card === null ? null : anonCardFrom(card, view, Date.now());
+        const kept = record === null ? [] : addAnonCard(tabStorage(), record);
+        const keptIt = record !== null && kept.some((entry) => entry.id === record.id);
+
+        setSaveNotice(keptIt ? intent.notice : ANON_JOURNAL_UNAVAILABLE);
         setSaveState("signin-required");
 
         return;
@@ -536,6 +597,15 @@ export default function InterviewChat({
    */
   const guided = currentOptions(flow);
   const candidates = guided.length > 0 ? guided : question === null ? [] : vocabularyFor(question.id);
+  /**
+   * The person's description, shown back on the first question (`ISS-28`).
+   *
+   * Verbatim, under their own label, and nothing else - no summary, no comment, no model. This is the one
+   * "reflection" that cannot misread anything, because it is not a reflection: it is the text they wrote.
+   * It appears only when they wrote something, and only before the first answer, so the interview visibly
+   * starts from their words rather than from a form.
+   */
+  const echo = answersOf(flow).length === 0 && description.trim().length > 0 ? description : null;
   const busy = flow.phase === "submitting";
   /**
    * Whether the turn in flight is the one that finishes the session (`ISS-22`).
@@ -735,11 +805,29 @@ export default function InterviewChat({
   if (flow.phase === "complete") {
     return (
       <>
-        <h1 id="card-title" className="text-2xl font-semibold tracking-tight text-ink">
+        {/*
+          The card's heading carries the arrival, and the card block itself is deliberately not wrapped:
+          `CardView` is the heading's next sibling, and the visual harness reads the card exactly that way
+          (its hero is the block's first two paragraphs). A wrapper would animate the card and break that
+          read, so the heading moves and the card arrives with it.
+        */}
+        <h1 id="card-title" className="motion-arrive text-2xl font-semibold tracking-tight text-ink">
           {CARD_TITLE}
         </h1>
 
         <CardView payload={flow.card} />
+
+        {/*
+          A live build whose provider refused must not look like a live build that worked (`ISS-28`
+          follow-up). `usedFallback` is true only when the card could not be worded by the model, and in
+          mock mode it is never true - mock wording never fails validation - so this line appears exactly
+          when a real provider turn did not produce the card.
+        */}
+        {flow.usedFallback && mode === "live" ? (
+          <p role="status" className="text-body leading-6 text-ink-muted">
+            {CARD_FROM_REVIEWED_WORDING}
+          </p>
+        ) : null}
 
         {/* What happened to the save, said plainly. A failed write is never silent. */}
         {saveState === "saving" ? (
@@ -815,6 +903,34 @@ export default function InterviewChat({
     );
   }
 
+  /**
+   * A turn the demo's own guard refused (`ISS-27`).
+   *
+   * It is not an error and it is not retryable from this screen: the window that refused this turn would
+   * refuse the next one too, so the only control is the way back. Nothing here retries by itself, and
+   * `retry()` is deliberately not offered - the state is announced politely (`status`, not `alert`),
+   * because a busy demo is not an emergency.
+   */
+  if (flow.phase === "failed" && busyNotice !== null) {
+    return (
+      <>
+        <StepLabel>{INTERVIEW_STEP_LABEL}</StepLabel>
+
+        <Panel>
+          <p role="status" className="text-body leading-6 text-ink">
+            {busyNotice}
+          </p>
+
+          <div className="flex flex-wrap gap-3">
+            <Button variant="secondary" onClick={onBack}>
+              {INTERVIEW_BACK}
+            </Button>
+          </div>
+        </Panel>
+      </>
+    );
+  }
+
   if (flow.phase === "failed") {
     return (
       <>
@@ -854,7 +970,17 @@ export default function InterviewChat({
 
   return (
     <>
-      <header className="flex flex-col gap-2">
+      {/* The person's own words, back again, exactly as they wrote them (`ISS-28`). */}
+      {echo === null ? null : (
+        <blockquote className="border-l-2 border-rule pl-3">
+          <span className="block text-meta text-ink-muted">{CARD_FIELD_LABELS.user_own_sentence}</span>
+          <span className="text-body leading-6 text-ink">{echo}</span>
+        </blockquote>
+      )}
+
+      {/* `key` on the question id, so a new question remounts this block and its arrival animation runs
+          again. The heading keeps `aria-live`, so the change is announced as well as seen. */}
+      <header key={question.id} className="motion-arrive flex flex-col gap-2">
         <StepLabel>{INTERVIEW_STEP_LABEL}</StepLabel>
 
         {/* The meter and its number. The dots are decoration - the number beside them carries the
@@ -919,7 +1045,10 @@ export default function InterviewChat({
         <p className="text-meta leading-5 text-ink-muted">{INTERVIEW_UNSURE_NOTE}</p>
 
         {busy ? (
-          <p role="status" className="text-meta text-ink-muted">
+          <p role="status" className="flex items-center gap-2 text-meta text-ink-muted">
+            {/* Decorative: the sentence beside it is what a screen reader announces, and it is the truth
+                about what is happening. The mark only makes the wait visible. */}
+            <span aria-hidden="true" className="motion-wait h-1.5 w-1.5 rounded-pill bg-accent" />
             {completing ? INTERVIEW_COMPLETING : INTERVIEW_LOADING}
           </p>
         ) : null}

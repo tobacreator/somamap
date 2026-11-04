@@ -62,7 +62,7 @@ describe("sign-out", () => {
 
 describe("protected routes check the session before the configuration", () => {
   for (const route of ["src/app/settings/page.tsx", "src/app/journal/page.tsx"]) {
-    it(`${route} reads the session first, and sends a signed-out reader to sign-in`, () => {
+    it(`${route} reads the session first, and resolves its target only afterwards`, () => {
       const text = source(route);
       const session = text.indexOf("currentSession()");
       const config = text.indexOf("supabaseTarget()");
@@ -70,21 +70,43 @@ describe("protected routes check the session before the configuration", () => {
       assert.ok(session !== -1, "the route must read the session");
       assert.ok(config !== -1, "the route must still resolve its target");
       assert.ok(session < config, "the session must be read before the configuration is resolved");
-      assert.ok(text.includes('redirect("/sign-in'), "a signed-out reader must be sent to sign-in");
-      assert.ok(text.indexOf("redirect(") < config, "the redirect must precede the configuration read");
     });
   }
 
-  it("carries the reader back to the page they asked for", () => {
-    assert.ok(source("src/app/journal/page.tsx").includes('redirect("/sign-in?next=%2Fjournal")'));
-    assert.ok(source("src/app/settings/page.tsx").includes('redirect("/sign-in?next=%2Fsettings")'));
+  it("sends a signed-out reader of settings to sign-in, carrying the page back", () => {
+    const settings = source("src/app/settings/page.tsx");
+
+    assert.ok(settings.includes('redirect("/sign-in?next=%2Fsettings")'));
+    assert.ok(settings.indexOf("redirect(") < settings.indexOf("supabaseTarget()"));
+  });
+
+  /**
+   * The journal is the deliberate exception (`ISS-28`).
+   *
+   * It used to redirect a signed-out reader to sign-in, which put the product's own record of a person's
+   * words behind an account. The product decision is that a visitor can finish a check-in, make several
+   * cards and read their journal without one - so the journal renders the cards this browser tab is
+   * holding instead of a wall. What is *not* relaxed is the persistent half: `listJournalCards` is still
+   * reached only with a verified session, it still reads as the user under RLS, and the only write in this
+   * area still needs an account (and an explicit confirmation).
+   */
+  it("gives a signed-out reader of the journal their in-session cards, not a sign-in wall", () => {
+    const journal = source("src/app/journal/page.tsx");
+
+    assert.ok(
+      journal.includes("if (!session) return <AnonJournal signedIn={false} />"),
+      "a visitor must get the in-session journal",
+    );
+    assert.equal(journal.includes('redirect("/sign-in'), false, "no sign-in wall on the journal");
+    assert.ok(journal.indexOf("!session") < journal.indexOf("supabaseTarget()"), "the session is read first");
+    assert.ok(journal.includes("listJournalCards"), "the persistent list is still read with a session");
   });
 
   it("shows the refusal only to a signed-in reader, and keeps it honest", () => {
-    // The journal's refusal branch sits after the redirect...
+    // The journal's refusal branch sits after the session is known to exist...
     const journal = source("src/app/journal/page.tsx");
 
-    assert.ok(journal.indexOf('redirect("/sign-in') < journal.indexOf("!resolution.ok"));
+    assert.ok(journal.indexOf("!session") < journal.indexOf("!resolution.ok"));
 
     // ...and settings resolves the target only once the session exists, so an unauthenticated request
     // cannot reach the panel or the reason it carries.
@@ -145,5 +167,30 @@ describe("a card finished without a session", () => {
     assert.ok(chat.includes('setSaveState(outcome.ok ? "saved" : "failed")'));
     assert.ok(chat.includes("JOURNAL_CARD_SAVED"));
     assert.ok(source("src/app/api/journal/route.ts").includes("saveJournalCard("));
+  });
+
+  /**
+   * `ISS-27` added a guard to the interview route. This holds the property the public demo depends on:
+   * the guard must not have brought a database with it. The interview has no Supabase access at all, so a
+   * signed-out visitor's turn cannot leave a row anywhere - and that stays true however the guard grows.
+   */
+  it("leaves the interview route with no database, whoever is asking", () => {
+    const route = source("src/app/api/interview/route.ts");
+
+    for (const forbidden of [
+      "journalStore",
+      "appRows",
+      "storageHttpClient",
+      "authSession",
+      "supabaseTarget",
+    ]) {
+      assert.equal(route.includes(forbidden), false, `the interview route must not reach ${forbidden}`);
+    }
+
+    assert.equal(
+      /saveJournalCard|updateJournalCard/.test(route),
+      false,
+      "no write path belongs in the interview route",
+    );
   });
 });

@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 
+import {
+  INTERVIEW_BODY_MAX_BYTES,
+  demoBudget,
+  oversizedField,
+  visitorKeyFrom,
+} from "@/lib/demoBudget";
 import { interviewStep } from "@/lib/interview";
 import { answerFor, UNAVAILABLE_ANSWER, type RouteAnswer } from "@/lib/interviewResponse";
 import { adapterFor, consoleViolationLogger, internalErrorRecord, modelMode } from "@/lib/models";
@@ -33,14 +39,67 @@ import { adapterFor, consoleViolationLogger, internalErrorRecord, modelMode } fr
  *
  * Not built here: authentication and the database write. Both belong to the session work
  * that follows gate G2, and neither is claimed.
+ *
+ * `ISS-27` adds the public demo's guard, and only that: a body-size ceiling, a per-field length cap, and a
+ * request budget counted per serverless instance (`src/lib/demoBudget.ts`). All three are decided before
+ * the state machine is called, so a refused request never reaches an adapter and never costs a provider
+ * call. It is an abuse deterrent, not authentication, and not a spend ceiling - the module states that
+ * limitation in full, and this route's `429` claims no more than it can.
  */
 export async function POST(request: Request): Promise<Response> {
+  /**
+   * The public demo's guard, and it comes first (`ISS-27`).
+   *
+   * Three refusals, cheapest first, and not one of them reaches the state machine or an adapter:
+   *
+   *   1. a declared body over `INTERVIEW_BODY_MAX_BYTES` is refused from `content-length` alone, before the
+   *      body is read - so an oversized request costs a header read and nothing else;
+   *   2. the abuse budget is counted next, so every request that arrives consumes a little of it, and a
+   *      request over the limit is answered `429` with nothing worded, sent, or logged. The counter is per
+   *      instance and the visitor key comes from a request header: it deters a loop, it does not cap a bill.
+   *      `src/lib/demoBudget.ts` says so at length, and this route does not pretend otherwise;
+   *   3. the body is read, measured again (a chunked request carries no length header), parsed, and each of
+   *      the four text fields is checked against its own cap.
+   *
+   * What this deliberately is not: authentication. The interview stays open to anyone without an account by
+   * design - that is what lets a person check in without one - and this bounds only how much one visitor
+   * may ask for.
+   */
+  const declared = Number(request.headers.get("content-length") ?? "0");
+
+  if (Number.isFinite(declared) && declared > INTERVIEW_BODY_MAX_BYTES) {
+    return NextResponse.json({ error: "too large" }, { status: 413 });
+  }
+
+  const decision = demoBudget.admit(visitorKeyFrom(request.headers), Date.now());
+
+  if (!decision.ok) {
+    return NextResponse.json({ error: "busy" }, { status: 429 });
+  }
+
+  let rawBody: string;
+
+  try {
+    rawBody = await request.text();
+  } catch {
+    return NextResponse.json({ error: "invalid request" }, { status: 400 });
+  }
+
+  if (rawBody.length > INTERVIEW_BODY_MAX_BYTES) {
+    return NextResponse.json({ error: "too large" }, { status: 413 });
+  }
+
   let body: unknown;
 
   try {
-    body = await request.json();
+    body = JSON.parse(rawBody) as unknown;
   } catch {
     return NextResponse.json({ error: "invalid request" }, { status: 400 });
+  }
+
+  // A field over its cap is refused here, so no unbounded text can reach a prompt.
+  if (oversizedField(body) !== null) {
+    return NextResponse.json({ error: "too long" }, { status: 400 });
   }
 
   const mode = modelMode();

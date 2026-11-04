@@ -87,6 +87,39 @@ export const INTERVIEW_LOADING = "Getting the next question...";
 export const INTERVIEW_ERROR = "That question could not be loaded, and nothing was saved.";
 export const INTERVIEW_RETRY = "Try again";
 export const INTERVIEW_BACK = "Back to check-in";
+
+/**
+ * Shown when the public demo's own guard refuses a turn (`ISS-27`).
+ *
+ * A `429` is not a failure of the interview and not a failure of the person: the request was refused
+ * before the state machine ran, so nothing was worded, nothing was sent to a model, and nothing was saved.
+ * The line says exactly that.
+ *
+ * It is deliberately one sentence for both counters - the per-visitor window and the per-instance one - so
+ * the screen cannot tell a caller which limit it hit, and a person is not asked to understand a budget.
+ *
+ * There is no "Try again" control beside it, on purpose: an immediate retry is refused by the same window,
+ * so offering the button would offer something the product already knows will fail. The way on is back to
+ * the check-in, and the screen never retries by itself.
+ */
+export const INTERVIEW_BUSY =
+  "The demo is busy right now. Nothing was sent to a model, and nothing was saved. Try again in a few minutes.";
+
+/**
+ * Shown when a live turn produced no model wording (`ISS-28` follow-up).
+ *
+ * The product fails closed: if the provider refuses, times out or answers with something the strict schema
+ * cannot accept, the card is worded from SomaMap's own reviewed copy and the person still gets a complete,
+ * honest card. That is the right behaviour - and until now it was **invisible**, so a working live build
+ * and a refused one looked identical on screen, which is exactly what the owner asked to fix before the
+ * demonstration.
+ *
+ * The line says three true things and no more: the model could not be reached, the card uses SomaMap's own
+ * reviewed wording, and the person's own words are untouched. It makes no claim about why, which the client
+ * genuinely does not know - the reason is a content-free category recorded on the server.
+ */
+export const CARD_FROM_REVIEWED_WORDING =
+  "The model could not be reached for this card, so SomaMap used its own reviewed wording. Your words are unchanged.";
 export const INTERVIEW_NOTE =
   "Your answers stay on this screen until the card is finished. The finished card is saved to your journal when you are signed in.";
 
@@ -275,8 +308,26 @@ export const CARD_EDIT_FAILED =
   "That change was not saved, so your card is unchanged. What you typed is still here - try again when you are ready.";
 export const CARD_EDIT_CANCEL = "Keep it as it was";
 export const CARD_START_NEW = "Start a new check-in";
+
+/**
+ * The confirmation the restart asks for.
+ *
+ * Its second half used to read "and nothing was saved", and that sentence contradicted the line directly
+ * above it on the same screen: a signed-in person is told "Saved to your journal.", and one tap later is
+ * told that nothing was saved. The sentence was meant to describe the **action** - starting again writes
+ * nothing - but it reads as a claim about the card, and it was false for the case most people are in.
+ *
+ * The wording now speaks only about the action, and its reassurance is conditional on purpose. The
+ * confirmation is shown whichever save line the screen is carrying, so it has to be true for all four of
+ * them: "Anything already saved to your journal stays there" holds for a card that was written, for a
+ * signed-out card that never was, and for a write that failed - and it claims nothing about a write still
+ * in flight. An unconditional "your card will remain in your journal" would be false for the signed-out
+ * card and for the failed write, and premature while a write is in flight, which is why it is not the
+ * sentence used. The restart itself is unchanged: it clears what is on screen and touches no journal row.
+ */
 export const CARD_START_NEW_CONFIRM =
-  "Start a new check-in? This clears the answers on this screen, and nothing was saved.";
+  "Start a new check-in? This clears the answers on this screen, and the new check-in starts with a blank set of answers. The cards already in your journal stay there.";
+
 export const CARD_START_NEW_KEEP = "Keep this card";
 
 /**
@@ -328,7 +379,7 @@ export const DELETE_EVERYTHING_RETRY = "Try again";
  */
 export const JOURNAL_STEP_LABEL = "Journal";
 export const JOURNAL_TITLE = "Your journal";
-export const JOURNAL_INTRO = "The cards you saved, newest first. These are your own words.";
+export const JOURNAL_INTRO = "The cards you have made, newest first. These are your own words.";
 export const JOURNAL_LOADING = "Getting your journal ready...";
 export const JOURNAL_LOAD_FAILED = "Your journal could not be loaded. Nothing was changed.";
 export const JOURNAL_EMPTY_TITLE = "No saved cards yet";
@@ -360,9 +411,67 @@ export const JOURNAL_CARD_SAVE_FAILED =
  * says the card was saved.
  */
 export const JOURNAL_CARD_SIGNED_OUT =
-  "This card is not saved, because you are not signed in. Nothing was lost - it is still on this screen.";
+  "This card is in your journal for now, in this browser tab. It is not saved anywhere else, and it goes when the tab closes. Sign in to keep it.";
 export const JOURNAL_CARD_SIGN_IN_LINK = "Sign in to keep your cards";
 export const JOURNAL_VIEW = "View your journal";
+
+/**
+ * The in-session journal (`ISS-28`) - the journal a visitor has without an account.
+ *
+ * The product decision: a person must be able to finish a check-in, get a card and look at their journal
+ * before deciding whether to create an account. Signing in is for *keeping* the journal, not for using the
+ * product.
+ *
+ * The copy does three things, and all three matter:
+ *
+ *   1. **It says where the cards are** - this browser tab - so nobody has to guess whether something was
+ *      saved to an account they never made.
+ *   2. **It says they are temporary**, in plain words, before the person relies on them. "It goes when the
+ *      tab closes" is the whole limitation, stated rather than discovered.
+ *   3. **It never says "saved"**, and it never implies a permanence the store cannot provide. The word
+ *      "saved" is kept for the one thing that is actually saved: a card in an account's journal.
+ *
+ * Iron rule 5: none of the four words the rule forbids appears below.
+ */
+export const ANON_JOURNAL_TITLE = "Your journal for now";
+export const ANON_JOURNAL_INTRO =
+  "These cards are in this browser tab, and they are not saved anywhere else yet. They are here while the tab is open, and they go when it closes.";
+export const ANON_JOURNAL_EMPTY_TITLE = "No cards yet";
+export const ANON_JOURNAL_EMPTY_BODY = "Finish a check-in and its card appears here, for as long as this tab is open.";
+export const ANON_JOURNAL_KEEP_TITLE = "Want to keep these?";
+export const ANON_JOURNAL_KEEP_BODY =
+  "An account keeps your cards, so they are still here tomorrow and on another device.";
+export const ANON_JOURNAL_SIGN_IN = "Sign in to keep them";
+
+/**
+ * What the card screen says when the browser will not keep an in-session journal at all (`ISS-28`).
+ *
+ * Some browsers refuse storage outright (Safari in private mode has thrown on the access). The card is
+ * still on screen and nothing is lost - but saying it is "in your journal" would be false, so this line is
+ * used instead of the usual one, and it says only what is true.
+ */
+export const ANON_JOURNAL_UNAVAILABLE =
+  "This browser would not keep a journal for this tab, so this card is only on this screen. Nothing was lost.";
+
+/**
+ * Moving in-session cards into an account (`ISS-28`), and only ever with an explicit yes.
+ *
+ * Nothing is written to a database until the person confirms: the anonymous journal is theirs to keep or
+ * to hand over, and a silent transfer would be exactly the persistence the product decision rules out. The
+ * partial line exists because a transfer is several writes - what landed has landed, and what did not is
+ * still in the tab, which is also what makes a second attempt safe.
+ */
+export const ANON_TRANSFER_TITLE = "Save these cards to your journal?";
+export const ANON_TRANSFER_BODY =
+  "They are in this browser tab right now. Saving them puts them in your journal, where they stay.";
+export const ANON_TRANSFER_SAVE = "Save them to my journal";
+export const ANON_TRANSFER_KEEP = "Leave them for now";
+export const ANON_TRANSFER_SAVING = "Saving your cards...";
+export const ANON_TRANSFER_DONE = "All of them are in your journal now.";
+export const ANON_TRANSFER_PARTIAL =
+  "Some of them are in your journal, and the rest are still here in this tab. Try again when you are ready.";
+export const ANON_TRANSFER_FAILED =
+  "None of them were saved, and they are all still here in this tab. Nothing was lost.";
 
 /**
  * The ways on from Settings (`ISS-17`).
@@ -406,22 +515,52 @@ export const PROCESSING_MODEL = "Model";
 export const PROCESSING_TIMEOUT = "Timeout";
 
 /**
- * The public home page - the market validation report's approved landing copy, verbatim.
+ * The public home page.
  *
- * The title tag, the H1, the subhead and the three-step explainer are the approved wording and are
- * asserted verbatim by `src/lib/landingCopy.test.ts`, so this page cannot drift from the report without
- * failing a check. The action labels and the one account line are the only strings here written for this
- * page, and the account line states only what the shipped app does: a check-in needs no account, and an
- * account is what keeps a card.
+ * The H1, the lead line, the supporting line, the four supporting points and the closing line are the
+ * owner's positioning for the Meta Global AI Developer Hackathon, written into the page's existing voice,
+ * and are asserted verbatim by `src/lib/landingCopy.test.ts` - so "verbatim" stays a property rather than
+ * an intention, and a silent reword fails a check.
+ *
+ * What changed, and why it is recorded here: the page carried the market validation report's landing copy,
+ * which opened on where a sensation is ("Point at your body") and closed on taking the words to an
+ * appointment. That appointment was the only reason the page gave for using the product, and it pointed at
+ * a clinical conversation the product neither serves nor claims. The H1 now names the difficulty the
+ * product actually addresses - a person can feel something and still not have the words - and the page
+ * says plainly what it is not (`HOME_SUPPORT_LINE`, `HOME_SECTIONS`).
+ *
+ * The three-step explainer is unchanged: it still describes the flow, and it is still the report's
+ * approved wording.
  *
  * Deliberately absent: the report's four FAQ answers (their wording is not in this workspace, and
  * inventing them would be inventing approved copy), any claim about what a sensation means or what
- * causes it, and any promise about what an external provider does with a person's words.
+ * causes it, any promise about what an external provider does with a person's words, and any restatement
+ * of the fixed line, which the shell renders on every screen.
  */
 export const HOME_TITLE_TAG = "SomaMap - find the words for what you feel in your body";
-export const HOME_H1 = "Point at your body. Find the words.";
+export const HOME_H1 = "You know what you feel. Finding the words is another matter.";
 export const HOME_SUBHEAD =
-  "Notice, name, and remember sensations - then bring the words to your appointment.";
+  "SomaMap helps you put physical sensations into words - one question, one description, one moment at a time.";
+
+/**
+ * The second line of the hero - the one that answers the difficulty the H1 names.
+ *
+ * It is separate from the lead line on purpose. The lead says what the product does; this says what the
+ * person does not have to bring with them, which is the whole reason the page exists: no terms, no
+ * preparation, no complete sentence required to begin.
+ */
+export const HOME_SUBHEAD_2 = "You do not need to know the right terms. Start with what you notice.";
+
+/**
+ * The line under the two actions.
+ *
+ * The positioning for this page proposed a line ending in a word this product is not allowed to print.
+ * That wording cannot be used: the stem is one of the four iron rule 5 forbids, and the red-team copy scan
+ * greps for all four across `src/app`, `src/components` and `src/lib` - comments included, which is how the
+ * first draft of this very note failed its own pack. The meaning is kept - the product draws no conclusion
+ * about what a person describes - in words the scan allows.
+ */
+export const HOME_SUPPORT_LINE = "Your words. Your experience. No conclusions drawn.";
 
 /** The approved three-step explainer, as the report writes it and as the page's three blocks. */
 export const HOME_STEPS_SENTENCE = "Tap it. Describe it with a little help. Bring the words.";
@@ -432,10 +571,60 @@ export const HOME_STEPS: readonly string[] = [
 ];
 
 export const HOME_STEPS_TITLE = "How it works";
-export const HOME_PRIMARY_ACTION = "Start a check-in";
+export const HOME_PRIMARY_ACTION = "Start describing";
 export const HOME_SECONDARY_ACTION = "Sign in";
 export const HOME_SIGNUP_ACTION = "Create an account";
 export const HOME_JOURNAL_ACTION = "See your journal";
+
+/**
+ * The four supporting points, as the owner's positioning writes them.
+ *
+ * Each one is a claim the product can actually keep, and the fourth is the only place this page says how
+ * the interview is guided - which it says precisely, because the precise version is the true one:
+ *
+ *   - every question is chosen from the reviewed set in `src/lib/questionBank.ts`, whether the choice is
+ *     made by the model (`guide.ts`) or by the reviewed sequence the mock build walks;
+ *   - the wording of every question is the bank's own, and the region label comes from the fixed
+ *     geometric map, never from a model;
+ *   - every word offered can be taken, left, refused as unsure, or replaced with the person's own, and
+ *     nothing reaches the card unless the person chooses it.
+ *
+ * What is deliberately absent: no claim that the product understands a body, works out a cause, or
+ * notices anything the person did not write; no claim of personalisation beyond "the next question
+ * follows what you wrote"; and no statistic, testimonial or story, because none exists to cite.
+ */
+export type HomeSection = { title: string; body: string };
+
+export const HOME_SECTIONS_TITLE = "What SomaMap is for";
+
+export const HOME_SECTIONS: readonly HomeSection[] = [
+  {
+    title: "Some feelings are hard to explain.",
+    body: "A sensation can be familiar and still difficult to put into words. SomaMap gives you a place to describe what you notice, in your own language.",
+  },
+  {
+    title: "Explore words. Keep the ones that fit.",
+    body: "SomaMap offers words that might fit. Take one, leave it, say you are not sure, or write your own - nothing is added to your card unless you choose it.",
+  },
+  {
+    title: "Your experience stays yours.",
+    body: "SomaMap helps you describe sensations. It does not tell you what they mean, work out what caused them, or name a condition.",
+  },
+  {
+    title: "A new way to explore the language of sensation.",
+    body: "SomaMap explores how AI can help guide a person toward words for an experience that is hard to describe. The interview asks one question at a time, and the wording of every question is SomaMap's own.",
+  },
+];
+
+/**
+ * The closing line, and the one sentence that states the product's intent in full.
+ *
+ * It is a denial and a promise, in that order: not what a body means, but what a person can say about it.
+ * It claims nothing the product does not do, and it is not the fixed line - that one is rendered on every
+ * screen by the shell, and is not restated anywhere.
+ */
+export const HOME_CLOSING =
+  "The goal is not to tell you what your body means. It is to help you describe what you feel.";
 
 /**
  * Product state, not report copy: what needs an account and what does not. It says nothing about what

@@ -22,7 +22,7 @@ function acknowledgedTurn(body: unknown, depsForTurn: InterviewDeps): Promise<In
   return stateMachine(acknowledged, depsForTurn);
 }
 import { adapterFor, mockAdapter, unavailableAdapter, type ModelAdapter, type ViolationRecord } from "./models.ts";
-import { QUESTION_BANK, questionById } from "./questionBank.ts";
+import { COMPARISON_QUESTION_ID, QUESTION_BANK, questionById } from "./questionBank.ts";
 
 /**
  * The interview state machine's tests - blueprint Table 10 stage 2 and Chapter 5.3.
@@ -680,3 +680,103 @@ describe("a question left unanswered (ISS-25)", () => {
     assert.equal(done.card.location_label, "shoulder");
   });
 });
+
+/**
+ * The comparison question, through the real state machine (`ISS-28`).
+ *
+ * The live report that started this: a session asked Q1, then Q2, then Q3 - the bank's own order, because
+ * the model took the first id it was offered - and the finished card carried "Not answered yet" under "It
+ * feels like", a row the person was never invited to fill. The adapter below does exactly what that model
+ * did, so this test is the reported run with the fix in place.
+ */
+describe("the comparison question is asked", () => {
+  /** A model that always takes the first id it is offered. Left alone, that is the bank's own order. */
+  function firstChoice(): ModelAdapter {
+    return {
+      ...mockAdapter,
+      async guide(_snapshot, _asked, choices) {
+        return {
+          question_id: choices[0],
+          options: [{ word: "steady", meaning: "the same the whole time" }],
+        };
+      },
+    };
+  }
+
+  const Q1_ANSWER = { questionId: "Q1", text: "tight and heavy" };
+  const Q2_ANSWER = { questionId: "Q2", text: "close to the surface" };
+
+  it("ends the asking turns on the comparison question, and the card carries the person's comparison", async () => {
+    const depsForSession = deps({ adapter: firstChoice() });
+
+    const first = await acknowledgedTurn(
+      { answers: [], text: null, regionLabel: "shoulder", description: "", asked: [] },
+      depsForSession,
+    );
+
+    assert.equal(first.status === "asking" ? first.question.id : "", "Q1");
+
+    const second = await acknowledgedTurn(
+      { answers: [], text: Q1_ANSWER.text, regionLabel: "shoulder", description: "", asked: ["Q1"] },
+      depsForSession,
+    );
+
+    assert.equal(second.status === "asking" ? second.question.id : "", "Q2");
+
+    // The session's last asking turn. One id is offered, and it is the comparison question.
+    const third = await acknowledgedTurn(
+      {
+        answers: [Q1_ANSWER],
+        text: Q2_ANSWER.text,
+        regionLabel: "shoulder",
+        description: "",
+        asked: ["Q1", "Q2"],
+      },
+      depsForSession,
+    );
+
+    assert.equal(
+      third.status === "asking" ? third.question.id : "",
+      COMPARISON_QUESTION_ID,
+      "the row must be invited before the card is built",
+    );
+
+    const done = await acknowledgedTurn(
+      {
+        answers: [Q1_ANSWER, Q2_ANSWER],
+        text: "like a scarf knotted too tight",
+        regionLabel: "shoulder",
+        description: "",
+        asked: ["Q1", "Q2", COMPARISON_QUESTION_ID],
+      },
+      depsForSession,
+    );
+
+    assert.equal(done.status, "complete");
+    assert.equal(
+      done.status === "complete" ? done.card.intensity_metaphor : "",
+      "like a scarf knotted too tight",
+      "the person's own comparison, verbatim",
+    );
+  });
+
+  it("does not restrict the last turn when the comparison question has already been asked", async () => {
+    const depsForSession = deps({ adapter: firstChoice() });
+
+    const asking = await acknowledgedTurn(
+      {
+        answers: [{ questionId: "Q1", text: Q1_ANSWER.text }],
+        text: "since this morning",
+        regionLabel: "shoulder",
+        description: "",
+        asked: ["Q1", COMPARISON_QUESTION_ID],
+      },
+      depsForSession,
+    );
+
+    // Two answers are in, one asking turn remains, and the comparison has been covered - so the model is
+    // offered the rest of the bank and takes the first id, which is Q1's neighbour, not Q14 again.
+    assert.equal(asking.status === "asking" ? asking.question.id : "", "Q2");
+  });
+});
+

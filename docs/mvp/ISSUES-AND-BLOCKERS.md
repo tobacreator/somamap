@@ -36,6 +36,8 @@ owner can decide in one pass.
 | `ISS-24` | **P1** | Editing the answers or changing the region saved a **second** journal entry for one check-in (four rows for one check-in were measured) | The journal's credibility: the count is the product's only history | **RESOLVED 2026-11-04** — a rebuild updates the card and its session in place; the ids travel with the session that survives the remount; a new check-in still inserts |
 | `ISS-25` | **P0** | A saved card was a dead end: the detail page offered "Back to journal" and nothing else, so a person could not correct their own words or the region — and the interview required words on every question, which is how "Don't know how to describe it" became a card's own sentence | The core promise: the card is the product's output, and a person who cannot revise it does not own it | **RESOLVED 2026-11-04** — the card's page edits the person's sentence and the region in place through the update path; the interview accepts "not sure" without inventing a word |
 | `ISS-26` | **P0** | The interview asked the same three reviewed questions in the same order whoever the person was, so the product felt like word selection rather than guided help — and Meta's model was used only to word the finished card | The hackathon claim and the promise: "SomaMap helps you find them" needs the model to help *find* language, not just to file it | **RESOLVED 2026-11-04** — the model now chooses the next reviewed question from the person's own words and offers three or four descriptive options for it, validated independently, with the reviewed bank as the fallback |
+| `ISS-27` | **P1** | A public preview would have left `/api/interview` open, unthrottled and with no input caps, so any visitor could spend the provider's budget and one request could carry unbounded text into a prompt | A judge-accessible demo without an unexpected bill | **IMPLEMENTED 2026-11-04** — declared-size and per-field caps, plus a per-visitor and a per-instance in-memory budget. Both are deterrents, **not a spend ceiling** — see §10 |
+| `ISS-28` | **P1** | Live testing found the suggestions did not answer the question they appeared under, the initial and edit flows offered different words, the comparison question was never asked (so `intensity_metaphor` stayed empty), and the journal was behind an account | The hackathon claim, the card's completeness, and a judge's ability to see the whole product | **IMPLEMENTED 2026-11-04** — the reviewed vocabulary is the floor with the model's words merged on top, the comparison question is required on the last turn, and a visitor gets an in-session journal in their browser tab with an explicit transfer on sign-in. See §11 |
 
 ---
 
@@ -79,6 +81,75 @@ could not.
   were verified **read-only** against the provider's own model list (`GET /v1/models`, a metadata call):
   HTTP 200, and `meta-models/muse-spark-open-1026` - the id this project already configures - is in it.
   A live demonstration needs one approval and one request.
+
+
+## 10. `ISS-27` — a public preview would have exposed an unthrottled interview endpoint (P1, implemented 2026-11-04)
+
+**Reported by the owner**, ahead of opening the preview to judges: the interview route is deliberately
+unauthenticated, and in live mode every turn asks the provider to do work. Nothing in the build counted
+requests, capped a body, or limited how much text one request could carry.
+
+- **What was already there, and is unchanged.** Request-shape validation; the crisis shield running first on
+  every user-authored text; the consent gate; the strict five-field schema; the Phase 2B draft guard and the
+  Phase 2A grounding. The interview also writes nothing - it has no database access at all - so a
+  signed-out visitor's turn leaves no row anywhere.
+- **What was missing.** A request budget, a body-size ceiling, and per-field length caps.
+- **What was added.** `src/lib/demoBudget.ts` (the caps, the visitor key, two windows over injected time, a
+  bounded visitor map), the guard in `src/app/api/interview/route.ts` before `interviewStep`, the `429`
+  state in `InterviewChat.tsx`, and `INTERVIEW_BUSY` in `copy.ts`. The limits: 500 characters per answer and
+  per description, 60 for the location (the card's own cap, reused), 8 KB per body, 20 turns per visitor
+  per 5 minutes, 120 turns per instance per 5 minutes.
+- **What this is not.** **Not a spend ceiling.** The per-instance counter lives in one serverless
+  instance's memory: N instances serve N times the limit, a cold start begins again at zero, a redeploy
+  resets it, and the per-visitor key comes from a request header a determined caller can vary. The real
+  ceiling is Vercel Firewall rate limiting on `/api/interview` together with the provider's own quota
+  controls - both configured outside the code, and neither claimed here.
+- **Evidence.** `npm run test:unit` - **573/573 pass**; `npm test` - red-team **8 PASS, 0 FAIL**; `tsc`,
+  `lint` and `build` green. 17 behavioural tests cover the guard's own decisions, 6 source assertions hold
+  the route's wiring, and one added assertion keeps the interview route free of any database access. No
+  provider request was made: the tests force mock mode and remove any key from their own process.
+- **Still to do outside the code.** Vercel Firewall rate limiting, a provider-side quota check, and the
+  decision about the preview's deployment protection - which is what actually stands between judges and the
+  app today.
+
+## 11. `ISS-28` — the live interview findings: a card missing a row it never asked for, two suggestion sources, and a journal behind an account (P1, implemented 2026-11-04)
+
+**Reported by the owner** after testing the live build, and traced line by line before anything was changed.
+
+- **J-01/J-02/J-03 - the suggestions did not answer the question.** Under "Does it stay in one spot, or does
+  it spread out?" the person was offered "tight, foggy, pulsing, heavy". The initial interview shows the
+  **model's** options (`InterviewChat`'s `candidates`), the instruction briefed the model for words about a
+  sensation in general rather than for words that answer the question it had just chosen, and
+  `guideFromReply` checked an option's shape but never its fit. The variation between check-ins was model
+  output, not randomness: `temperature: 0` and no seed, but a different session is different input.
+- **§4 - the edit flow's suggestions were relevant and the initial flow's were not.** The two flows read
+  from different sources: the edit branch uses `vocabularyFor(editing.id)` (the reviewed per-question list)
+  and the initial branch preferred the route's options. The owner's edit examples are verbatim the Q1/Q2/Q3
+  entries of `vocabulary.ts`.
+- **J-04 - the comparison question was never asked.** A live-mode regression of `ISS-02`: that fix put Q14
+  into the fixture sequence, and the guided path then let the model choose freely, with nothing requiring
+  the comparison. The edit flow replays the session's own `asked`, so it inherited the gap.
+- **J-05 - the card showed "Not answered yet" for that row.** `cardView.ts` renders an empty field that way
+  on purpose; the defect was J-04.
+- **The fix, in four parts.** (1) `guideChoicesFor` takes the turns remaining and offers only the comparison
+  question on the session's last turn when it has not been asked, and `guideFromReply` validates against
+  exactly the ids the prompt carried. (2) The prompt carries each candidate question's own wording, and the
+  reviewed vocabulary for the chosen question is the floor with the model's words merged on top, deduped and
+  capped - so the initial and edit flows show the same words and a mismatched set is impossible. (3) A
+  finished card made without an account goes into the browser tab's `sessionStorage`; `/journal` renders it
+  for a visitor instead of redirecting, and offers a transfer that happens only on an explicit yes, one
+  write per card, removing exactly what landed so a retry cannot duplicate anything. (4) A small motion
+  layer with `prefers-reduced-motion`, and the person's own description echoed back verbatim on the first
+  question.
+- **Evidence.** `npm run test:unit` - **602/602 pass**; `npm test` - red-team **8 PASS, 0 FAIL**; `tsc`,
+  `lint` and `build` green. New tests cover the coverage rule through the real state machine (a model that
+  takes the first id it is offered now ends on Q14 and the card carries the person's comparison), the merged
+  options, the in-session store (including a storage that refuses), and the motion rules. No provider
+  request was made.
+- **Not changed.** The five-field schema, the bank's wording, the crisis shield, the consent gate, the
+  model boundary and its configuration, the ISS-27 guard, RLS, and the authentication that protects a
+  persistent journal.
+
 
 
 ---

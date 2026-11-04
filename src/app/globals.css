@@ -160,3 +160,80 @@ body {
   background: var(--color-paper);
   color: var(--color-ink);
 }
+
+/* ===========================================================================
+ * Motion (`ISS-28`) - one small layer, four uses, no dependency.
+ *
+ * The interview is a conversation, and a screen that changes with no transition reads as a form being
+ * re-rendered. This layer exists to make three things legible: that a new question has arrived, that the
+ * app is waiting on something, and that the words offered belong to the question in front of the person.
+ *
+ * Three rules keep it from becoming decoration:
+ *
+ *   1. **It is short.** Nothing here runs longer than --duration-settle (200 ms), which is deliberately
+ *      under the 250 ms the visual harness waits before it measures - so a screen measured mid-run is
+ *      measured at rest, and the gates stay stable.
+ *   2. **It is opacity and a few pixels of transform only.** No layout property is animated, so nothing
+ *      reflows, nothing jumps, and a measurement taken during an animation sees the same geometry it
+ *      would see after one.
+ *   3. **It is switched off when the operating system asks.** `prefers-reduced-motion: reduce` removes
+ *      every animation below - including the waiting pulse, which is set to full opacity instead - so a
+ *      person who has asked their device for stillness gets a still product.
+ *
+ * The waiting pulse is the only looping animation, and it is opacity-only for the reason in rule 2. It is
+ * bound to the interview's real state (the turn in flight) and it disappears with that state, so it never
+ * claims more progress than there is.
+ * ===========================================================================
+ */
+@theme {
+  --duration-quick: 120ms; /* a change the eye should not have to wait for */
+  --duration-settle: 200ms; /* content arriving: under the harness's 250 ms settle */
+}
+
+@keyframes somamap-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes somamap-wait {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/** A block of content that has just arrived: a new question, a new card. */
+.motion-arrive {
+  animation: somamap-arrive var(--duration-settle) ease-out both;
+}
+
+/** A suggestion appearing under a question, staggered by the caller. */
+.motion-chip {
+  animation: somamap-arrive var(--duration-quick) ease-out both;
+}
+
+/** The waiting mark, shown only while a turn is in flight. Decorative: the text says what is happening. */
+.motion-wait {
+  animation: somamap-wait 900ms ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-arrive,
+  .motion-chip {
+    animation: none;
+  }
+
+  .motion-wait {
+    animation: none;
+    opacity: 1;
+  }
+}

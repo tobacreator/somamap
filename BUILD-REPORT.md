@@ -12898,3 +12898,305 @@ and it chooses.
 
 
 
+
+## Entry 58 - 2026-11-04 14:12 (+01:00) - The landing page says what the product is for: the hackathon positioning, in the page's own voice (copy and presentation, no `ISS`)
+
+### 1. Task and boundaries
+
+Requested (the hackathon preparation task of 2026-11-04): review the landing page and the user-facing copy,
+then make the smallest coherent copy and presentation change that carries the product's value through the
+two hackathon themes - a person can feel something and still not have the words (Build for Your World), and
+AI can help someone find language for a difficult-to-express experience while the person keeps control
+(Push the Frontier) - while the product stays a vocabulary and journaling tool.
+
+Touched: `src/lib/copy.ts` (the home block), `src/app/page.tsx`, `src/lib/landingCopy.test.ts`,
+`src/app/layout.tsx`. **Not** touched: the five-field schema, the interview state machine, the question
+bank, the crisis shield, consent, the model boundary, the migration, RLS, the environment, the provider
+configuration, `.clinerules`, and every other screen's copy. No new API call, no inference request, no
+database write.
+
+**Outcome in one line:** the page opens on the difficulty rather than on the body, says what a person does
+not have to bring with them, states plainly what the product does not conclude, and states how the interview
+is guided - in the page's existing voice and its existing hairline visual language. **550/550 unit tests**,
+red-team **8/8**, `tsc`, `lint` and `build` green.
+
+### 2. What was already strong, and what it could not say
+
+Strong, and kept: one column on the `Screen` shell (so the fixed line is structural rather than remembered);
+the humanist serif for the H1; the abstract figure, drawn in the product's own tokens and hidden from
+assistive technology; hairlines instead of cards; and not one prohibited word anywhere.
+
+Three things the page could not say:
+
+1. **The H1 addressed the body, not the problem.** "Point at your body. Find the words." assumes the person
+   can point at it. The theme is the opposite case: a sensation that is present and unnameable.
+2. **The subhead promised a clinical destination.** "then bring the words to your appointment" was the only
+   reason the page gave for using the product, and it pointed at a conversation the product neither serves
+   nor claims - the framing the fixed line exists to prevent.
+3. **Nothing on the page said what the product is not, and nothing said how the AI helps.** The second is
+   what the hackathon asks to see, and the honest version of it is the stronger claim: the model chooses
+   *which reviewed question* comes next, the wording is the bank's own, and the person keeps the last word.
+
+### 3. What changed
+
+| file | change |
+|---|---|
+| `src/lib/copy.ts` | new `HOME_H1`, `HOME_SUBHEAD`, `HOME_SUBHEAD_2` (no terms required), `HOME_SUPPORT_LINE`, `HOME_SECTIONS_TITLE`, `HOME_SECTIONS` (the four points) and `HOME_CLOSING`; `HOME_PRIMARY_ACTION` becomes "Start describing"; the three-step explainer and the title tag are unchanged |
+| `src/app/page.tsx` | the hero renders the new lines and the supporting line; a second hairline-divided grid (`sm:grid-cols-2`) carries the four points as `h3` blocks; the closing line sits behind a rule as a coda. Same shell, same tokens, same figure, same block pattern - no redesign |
+| `src/lib/landingCopy.test.ts` | the pin moves to the new wording, the four points are pinned whole (titles and bodies), and the source check now requires the page to render them |
+| `src/app/layout.tsx` | the metadata title and description are imported from `copy.ts` instead of being duplicated literals - the description was still the old subhead, which is the drift a second copy invites |
+
+
+### 4. Two compliance conflicts, resolved rather than copied
+
+- The proposed supporting line ended in a word whose stem is one of the four iron rule 5 forbids. It cannot
+  appear in `src/app`, `src/components` or `src/lib`, so the line was reworded to keep the meaning ("no
+  conclusion about what a person describes") in words the scan allows. The same applied to the proposed
+  third point, which named the forbidden act directly.
+- The proposed closing disclaimer is the fixed line, which the shell already renders on every screen.
+  `copy.ts` forbids restating it, so it was not added a second time.
+
+**The copy scan caught this entry's own author.** The first draft of the comment explaining the first
+conflict *wrote the forbidden stem while explaining it* - and T5 failed on `src/lib/copy.ts`. Comments are
+scanned, which is correct: the pack cannot be argued with. The note was reworded and the row passes. That is
+the second time this pack has caught a comment rather than a claim, and it is worth recording as evidence
+that the scan is doing its job.
+
+### 5. Gates on the evidence
+
+| gate | result |
+|---|---|
+| `npm run test:unit` | **550/550** (549 before; the landing pin went from 6 tests to 7) |
+| `npm test` | red-team **8 PASS, 0 FAIL, 0 NOT IMPLEMENTED** - T5: zero prohibited hits across 108 text files |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run lint` | 0 errors (2 pre-existing warnings in `tools/visual-harness/run.mjs`, untouched) |
+| `npm run build` | 16 pages, `/` still static |
+| visual harness | **not re-run.** The harness navigates to `/checkin` and nowhere else - every `goto`, and the server check, target that route - so this change is unreachable from it. The documented baseline (189 passed / 43 failed of 232) is unchanged by construction, not by measurement |
+
+### 6. What remains, honestly
+
+- **No harness evidence for this page.** The landing page has no visual gate of its own: nothing asserts its
+  copy, its block order or its height at any viewport. A copy change there is covered by the copy pin and by
+  the scans, and by nothing visual.
+- **The AI claim is deliberately narrow.** The page says the interview asks one question at a time and that
+  the wording of every question is SomaMap's own. It does not say the model adapts, personalises or learns,
+  because the strongest thing the implementation supports is that the next question is chosen from a
+  reviewed set - true in both modes, and what the live smoke test observed.
+- **The page never mentions that an external provider may receive the person's words.** That stays on the
+  check-in screen, in the disclosure, where the acknowledgement is asked for. It is a deliberate placement,
+  and it is the one place a judge could reasonably ask "where is the AI disclosed?" - the answer is: one
+  screen later, before anything is sent.
+- **The copy pin is now a two-file edit.** Rewording any pinned line means editing `copy.ts` and
+  `landingCopy.test.ts` together. That is the pin working, and it is worth knowing before the next wording
+  change.
+
+
+## Entry 59 - 2026-11-04 16:19 (+01:00) - The interview gets a public demo's guard: input caps and a request budget (`ISS-27`, IMPLEMENTED)
+
+### 1. Task and boundaries
+
+Requested: judges should be able to open a public preview and try the interview without signing in, with
+abuse and unexpected model cost limited. The approved scope was implemented exactly - request and
+input-length caps in the interview route, a per-visitor and a per-instance in-memory budget in a new
+module, and the tests, the `429` state and this documentation.
+
+Touched: `src/app/api/interview/route.ts`, `src/lib/demoBudget.ts` (**new**), `src/lib/copy.ts`,
+`src/components/InterviewChat.tsx`, `src/lib/demoBudget.test.ts` (**new**),
+`src/app/api/interview/route.test.ts` (**new**), `src/lib/authJourney.test.ts`, this report and the issue
+row. **Not** touched: the five-field schema, the question bank, the crisis shield, the consent gate, the
+model boundary, `interviewFlow.ts`, the journal/settings/delete-everything routes, the migration, RLS, the
+environment, the provider configuration, `.clinerules`. No provider call was made, nothing was deployed,
+and no Vercel setting was changed.
+
+**Outcome in one line:** an oversized body is refused from its declared length before it is read, each of
+the four text fields has a documented cap, and a turn over the budget is answered `429` before the state
+machine runs - so a refused turn cannot reach an adapter. **573/573 unit tests**, red-team **8/8**, `tsc`,
+`lint` and `build` green.
+
+### 2. The limits, and why these numbers
+
+| limit | value | why |
+|---|---|---|
+| one answer (`text`, `answers[].text`) | 500 characters | the answer field's own placeholder is "A few words are enough."; 500 is roughly eighty words, several times a real answer, so the cap only ever stops unbounded text |
+| the description | 500 characters | the same kind of writing, in the box on the screen before the interview |
+| the location | 60 characters (`USER_LOCATION_MAX_LENGTH`, reused) | `userLocationFrom` already caps a location at 60 before it can reach a card, so accepting more would carry text the product immediately discards |
+| one request body | 8 KB | the widest legal body is about 2.5 KB; 8 KB leaves headroom and still refuses anything pathological before it is parsed |
+| one visitor | 20 turns per 5 minutes | a session is 4 turns, an edit replays up to 3, and a person may try twice: 12-15 turns is a real demo, so 20 is comfortable for a person and useless to a loop |
+| one instance | 120 turns per 5 minutes | about thirty complete sessions per instance per window; the backstop for many callers at once |
+
+A test asserts the caps stay mutually consistent - three answers plus a description plus a location must
+fit inside the body cap - and that the visitor limit stays above a session plus an edit. A future tuning
+change that would break a judge's session therefore fails a check rather than the demo.
+
+### 3. What the guard is not - the limitation, in the code and here
+
+**The per-instance counter is not a spend ceiling.** It lives in the memory of one serverless instance: a
+deployment that scales to N instances can serve N times the limit, a cold start begins again from zero, and
+a redeploy resets it. The per-visitor window is a deterrent for the same reason plus one more - the visitor
+is identified from `x-forwarded-for` (last hop), which a determined caller can vary. Both are stated at
+length in `src/lib/demoBudget.ts`, in the route's own comment, and beside the `429` copy. **A real ceiling
+belongs to Vercel Firewall rate limiting on `/api/interview` and to the provider's own quota controls.
+Neither is configured by this entry, and neither is claimed.**
+
+
+
+### 4. Where it lives
+
+| file | change |
+|---|---|
+| `src/lib/demoBudget.ts` | **new** - the caps (`oversizedField`), the visitor key, and `createDemoBudget()`: two windows over injected time, a bounded visitor map, and the single instance the route uses. Pure state, no clock read, no request |
+| `src/app/api/interview/route.ts` | the guard, before `interviewStep`: declared-size `413`, budget `429`, read-size `413`, `JSON.parse` `400`, field caps `400`. Nothing else in the handler changed |
+| `src/lib/copy.ts` | `INTERVIEW_BUSY` - one calm line, the same for either counter, so the screen cannot tell a caller which limit it hit |
+| `src/components/InterviewChat.tsx` | `PostResult` now carries the HTTP status; a `429` becomes its own panel (`role="status"`, "Back to check-in") with **no retry control**, because an immediate retry would be refused by the same window. Every other failure path is unchanged |
+| `src/lib/demoBudget.test.ts` | **new** - 17 tests: caps at the boundary, all four fields, non-strings left to the parser, the consistency invariants, the visitor key's last-hop rule, both windows, expiry, isolation between instances, and the bounded map |
+| `src/app/api/interview/route.test.ts` | **new** - 6 source assertions holding the wiring: every refusal before the state machine, one adapter construction after the guard, each status, the two size checks, and that the route never gains a session check |
+| `src/lib/authJourney.test.ts` | one added assertion: the interview route still reaches no database and carries no write path |
+
+### 5. Two honest notes on the tests
+
+- **The route test is structural, not behavioural, and the file says why.** The route imports
+  `next/server`, which plain `node --test` cannot resolve outside the Next build (`ERR_MODULE_NOT_FOUND`).
+  Importing the handler would mean either changing a production import to suit a test or adding a resolver
+  - both worse than the gap they close. So the guard's decisions are exercised behaviourally in
+  `demoBudget.test.ts` (pure functions, real assertions), and the route's wiring is asserted at the source.
+  The claim "a refused turn cannot reach an adapter" rests on two facts together: the guard returns before
+  `interviewStep`, and `interviewStep` is the only call in the route that can reach an adapter.
+- **The tests cannot make a paid call.** The route test forces `MODEL_MODE=mock` and deletes any provider
+  key from its own process before anything runs, so a machine whose shell exports live mode still cannot
+  spend during a test run. No provider request was made in this entry.
+
+### 6. Gates on the evidence
+
+| gate | result |
+|---|---|
+| `npm run test:unit` | **573/573 pass** (550 before: 17 in `demoBudget.test.ts`, 6 in the route test, 1 added to `authJourney.test.ts`) |
+| `npm test` | red-team **8 PASS, 0 FAIL, 0 NOT IMPLEMENTED** |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run lint` | 0 errors (the same 2 pre-existing harness warnings) |
+| `npm run build` | 16 pages, `/` still static, route table unchanged |
+| live inference | **none** - no provider request was made in this entry, by test or by hand |
+
+### 7. What still has to happen outside this code
+
+- **Vercel Firewall rate limiting on `/api/interview`** - the only layer that bounds cost across instances.
+- **A provider-side quota or spend limit**, checked in the provider's own console.
+- **The deployment decision**: the preview is still behind Vercel Authentication, so judges cannot open it
+  yet. That is the owner's call and was out of scope here.
+
+## Entry 60 - 2026-11-04 18:41 (+01:00) - The interview keeps the card whole, one source of suggestions, an in-session journal, and motion (`ISS-28`, IMPLEMENTED)
+
+### 1. Task and boundaries
+
+Requested (the founder's consolidated investigation and approval): fix the comparison question so the card is
+never missing a row the person was never invited to fill; make the initial and edit suggestion experiences
+one experience, with the reviewed vocabulary as the guaranteed floor and the model's words as added value;
+give a visitor a complete journey - check-in, several cards, a journal - without an account; and make the
+interaction feel like a conversation rather than a form, with restrained motion that respects the operating
+system.
+
+Touched: `src/lib/guide.ts`, `src/lib/interview.ts`, `src/lib/anonJournal.ts` (**new**),
+`src/lib/anonJournal.test.ts` (**new**), `src/lib/motion.test.ts` (**new**), `src/lib/copy.ts`,
+`src/lib/journalSave.test.ts`, `src/lib/authJourney.test.ts`, `src/lib/guide.test.ts`,
+`src/lib/interview.test.ts`, `src/components/AnonJournal.tsx` (**new**),
+`src/components/InterviewChat.tsx`, `src/app/journal/page.tsx`, `src/app/globals.css`, this report and the
+issue row. **Not** touched: the five-field schema, the question bank's wording, the crisis shield, the
+consent gate, the model boundary or its configuration, the ISS-27 guard, the migration, RLS, the
+environment, and `.clinerules`. No provider call was made; nothing was deployed; nothing was committed.
+
+**Outcome in one line:** the session can no longer end without inviting a comparison, the words under a
+question are always the question's own reviewed words (with the model's added on top), a visitor gets a
+journal in their browser tab and can choose to keep it, and the interview moves with the person's own words
+echoed back. **602/602 unit tests**, red-team **8/8**, `tsc`, `lint` and `build` green.
+
+### 2. What was actually wrong, and where
+
+The live findings, each traced to the line that caused it:
+
+| finding | root cause |
+|---|---|
+| **J-01/J-02/J-03** - suggestions did not answer the question ("tight, foggy, pulsing" under the distribution question) and varied between check-ins | The initial interview shows the **model's** options (`InterviewChat`'s `candidates`, from the route's `options`). `GUIDE_SYSTEM_INSTRUCTION` briefed the model for words about a sensation in general, not for words that answer the question it just chose - and `guideFromReply` checked an option's shape but never its fit. The variation was model output, not randomness (`temperature: 0`, no seed, different input per session) |
+| **§4** - the edit flow's suggestions were relevant and the initial flow's were not | The two flows read from **different sources**: the edit branch uses `vocabularyFor(editing.id)` (the reviewed per-question list), the initial branch prefers the route's options. The founder's edit examples - "in one spot / spreading out", "close to the surface / deep inside", "steady / in waves / wave-like" - are verbatim the Q1/Q2/Q3 entries of `vocabulary.ts` |
+| **J-04** - the comparison question was never asked, so `intensity_metaphor` stayed empty | **A live-mode regression of `ISS-02`.** That fix put Q14 into the *fixture sequence*; the guided path then let the model choose freely (`guideChoicesFor(asked)` = the whole bank minus asked) and nothing required the comparison. The edit flow replays the session's own `asked`, so it inherited the same gap |
+| **J-05** - a card could show "Not answered yet" for that row | `cardView.ts`'s `rowFor` renders an empty field as `CARD_NOT_ANSWERED` - deliberate and honest. The defect was J-04, not the renderer |
+| **§5** - it felt like form filling | The model's contribution was real but unvalidated for fit, and nothing on screen acknowledged the person's own description |
+
+
+### 3. What changed
+
+**Change 1 - coverage (`guide.ts`, `interview.ts`).** `guideChoicesFor(asked, remainingTurns)` now takes how
+many asking turns come after this one. On the session's **last** turn, if the comparison question has not
+been asked, it is the only choice offered - and `guideFromReply` validates the chosen id against **exactly
+the ids the prompt carried**, so the restriction is enforced as well as offered. The reviewed fallback
+sequence already ends with Q14, so mock behaviour is unchanged.
+
+**Change 2 - one source of suggestions (`guide.ts`).** The prompt now carries each candidate question **with
+the wording it would be asked in** (`choose_one_of: [{ id, question }]`, read from the bank, never written by
+the model), and the instruction asks for words that answer the question chosen. `guideFromReply` then
+**merges**: the chosen question's own reviewed vocabulary first and never shortened, then the model's words
+that the list does not already say (deduped, capped at eight in total). A mismatched set is now impossible,
+and the initial and edit flows show the same words. `source` keeps its meaning - the reply was used - and no
+longer depends on how much the model added.
+
+**Change 3 - the in-session journal (`anonJournal.ts`, `AnonJournal.tsx`, `journal/page.tsx`,
+`InterviewChat.tsx`, `copy.ts`).** A finished card made without an account goes into the **browser tab's
+`sessionStorage`**, under one versioned key, validated on read. `/journal` no longer redirects a visitor: it
+renders the cards that tab holds, says plainly that they are not saved anywhere else and go when the tab
+closes, and offers the way to keep them. A signed-in visitor holding in-session cards is offered a transfer
+- **only on an explicit yes** - one write per card through the existing journal route; the cards that landed
+are removed from the store and the rest are left, which is what makes a retry safe. Nothing is written to a
+database before that click, and the interview route still touches no database at all.
+
+**Change 4 - motion and the echo (`globals.css`, `InterviewChat.tsx`).** One small motion layer: a question
+arriving, chips appearing in a short stagger, a waiting mark bound to the turn in flight, and the card
+settling as one block. All of it is opacity and a few pixels of transform, none of it exceeds 200 ms, and
+`prefers-reduced-motion: reduce` removes every animation. On the first question the person's own description
+is shown back **verbatim** under their own label - not a summary, not a comment, and no model involved.
+
+### 4. The limits, chosen and stated
+
+| limit | value | why |
+|---|---|---|
+| options shown in total | 8 | the reviewed groups run from two to eight, and a reviewed word is never dropped to make room for a model's; the cap bounds only what the model adds |
+| model options per reply | 4 | unchanged: a short list is a help, a long one is a test |
+| chip stagger | 25 ms per chip, capped at five steps | the last chip is settled inside the 250 ms the harness waits before measuring |
+| animation duration | 120 ms / 200 ms | short enough to be measured at rest, and short enough not to slow the interaction |
+| in-session cards | 50 | a demo journal is a handful; this is only a bound |
+| stored format | one key, version 1 | a value from another version is ignored, never migrated |
+
+### 5. Gates on the evidence
+
+| gate | result |
+|---|---|
+| `npm run test:unit` | **602/602 pass** (573 before: 5 coverage tests, 4 merge tests, 12 in-session journal tests, 6 motion tests, and the rewrites of the tests that pinned the old behaviour) |
+| `npm test` | red-team **8 PASS, 0 FAIL, 0 NOT IMPLEMENTED** |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run lint` | 0 errors (the same 2 pre-existing harness warnings). One was introduced and fixed properly: the journal's list is read with `useSyncExternalStore`, not by setting state from an effect |
+| `npm run build` | 16 pages, route table unchanged |
+| visual harness | **189 passed, 43 failed of 232, 0 console errors** - byte-for-byte the documented baseline (the same `ISS-07`, `ISS-09` and `ISS-13` gates), so the four changes are harness-neutral |
+| live inference | **none** - no provider request was made, by test or by hand |
+
+### 6. What to watch for
+
+- **The visual harness reads the card structurally, and that is now written down.** It takes the card as the
+  heading's next sibling and its hero as that block's first two paragraphs. Wrapping `CardView` in an
+  animating `<div>` broke exactly that read and turned one gate red (`J3.fields`), which is how it was found
+  - so the card's arrival is carried by its heading, and the block itself is deliberately left alone. A
+  `className` prop on `CardView` would let the card animate too; that is a change to a file outside this
+  entry's scope, so it is left as a proposal rather than done.
+- **One earlier harness run was invalid, and for a reason worth remembering.** An orphaned `next start` from
+  an earlier session was still listening on the harness's default port, so the run measured a superseded
+  build against a rebuilt `.next` and reported 87 failures and 74 console errors that belonged to no change
+  at all. The run recorded above is on a fresh port against a fresh build, with the stray servers stopped.
+- **The visual harness must stay stable.** Every animation is finite, under the 250 ms the harness waits, and
+  animates no layout property - the waiting mark is opacity-only - so a screen measured mid-run is measured
+  at rest. If a gate ever proves flaky, the fix is to shorten an animation, not to lengthen the harness.
+- **An in-session journal dies with the tab.** That is the design, and the copy says so in the same words.
+  It also means a judge who opens the journal in a *new tab* sees an empty one - worth knowing before a demo.
+- **A transfer is several writes.** It is sequential and it stops at the first failure; what landed is
+  removed and what did not is kept, so pressing the button again cannot duplicate anything.
+- **The model's words are now additions, not replacements.** The demo's "the model chose this" claim still
+  holds for the *question* - the disclosure button and `/settings` remain the live/mock tells - but the words
+  under a question are always the reviewed ones first.
+- **No animation dependency was added**, and none is needed: the layer is one `@theme` block, two keyframes
+  and three classes in `globals.css`.
+

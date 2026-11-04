@@ -6,31 +6,45 @@ import PaperPage from "@/components/PaperPage";
 import Screen from "@/components/Screen";
 import {
   HOME_ACCOUNT_NOTE,
+  HOME_CLOSING,
   HOME_H1,
   HOME_JOURNAL_ACTION,
   HOME_JOURNAL_NOTE,
   HOME_PRIMARY_ACTION,
   HOME_SECONDARY_ACTION,
+  HOME_SECTIONS,
+  HOME_SECTIONS_TITLE,
   HOME_SIGNUP_ACTION,
   HOME_STEPS,
   HOME_STEPS_TITLE,
   HOME_SUBHEAD,
+  HOME_SUBHEAD_2,
+  HOME_SUPPORT_LINE,
   HOME_TITLE_TAG,
 } from "@/lib/copy";
 
 /**
- * The public home page - the market validation report's approved landing copy, in the approved visual
- * direction.
+ * The public home page - the owner's positioning for the Meta Global AI Developer Hackathon, in the
+ * approved visual direction.
  *
  * What it is: one column on the `Screen` shell (so the measure, the gutter and the fixed line are the
- * shell's, not this page's), the approved H1 in the humanist serif, the approved subhead beneath it, two
- * actions - start a check-in, or sign in - and the three-step explainer as three blocks separated by
- * hairlines rather than three cards.
+ * shell's, not this page's), the H1 in the humanist serif, the lead line and the one line that says no
+ * terms are required, two actions with the supporting line under them, the three-step explainer, the four
+ * supporting points, and the closing line - every block separated by hairlines rather than boxed into
+ * cards, which is the page's existing visual language and stays that way.
+ *
+ * The order is deliberate. The hero says what this is and what the person does not have to bring. The
+ * steps say how it goes. The four points say what the product is for, and the third and fourth of them
+ * are the ones that keep the page honest: one states what SomaMap does not do, and the other states how
+ * the interview is guided, which is the only claim about the model the implementation actually supports.
+ * The closing line then says the intent once, plainly.
  *
  * What it deliberately is not: there is no FAQ (the report's four answers are not in this workspace and
- * inventing them would be inventing approved copy), no stock imagery, no claim about what a sensation
- * means or what causes it, and no statement about what any external provider does with a person's words -
- * that belongs to the disclosure, on the screen where it applies.
+ * inventing them would be inventing approved copy), no stock imagery, no statistic, testimonial or story
+ * (none exists to cite), no claim about what a sensation means or what causes it, no claim that the
+ * product understands a body or notices anything the person did not write, and no statement about what
+ * any external provider does with a person's words - that belongs to the disclosure, on the screen where
+ * it applies.
  *
  * The account line is there for one reason: a first-time visitor must learn that an account exists
  * *before* reaching a flow whose saving needs one. The check-in itself needs no account, and the line says
@@ -98,6 +112,8 @@ export default function HomePage() {
 
           <p className="text-lead leading-7 text-ink-muted">{HOME_SUBHEAD}</p>
 
+          <p className="text-body leading-6 text-ink-muted">{HOME_SUBHEAD_2}</p>
+
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <Link href="/checkin" className={buttonClass("primary", "lg")}>
               {HOME_PRIMARY_ACTION}
@@ -107,6 +123,9 @@ export default function HomePage() {
               {HOME_SECONDARY_ACTION}
             </Link>
           </div>
+
+          {/* The line under the actions: what the product draws no conclusion about. */}
+          <p className="text-label text-ink-muted">{HOME_SUPPORT_LINE}</p>
         </div>
 
         <div className="flex justify-center md:flex-none">
@@ -153,6 +172,28 @@ export default function HomePage() {
           ))}
         </ol>
       </section>
+
+      <section aria-labelledby="home-points" className="flex flex-col gap-4">
+        <h2 id="home-points" className="text-label font-medium text-ink-muted">
+          {HOME_SECTIONS_TITLE}
+        </h2>
+
+        {/* The same hairline-divided grid the steps use, at two columns instead of three: these four
+            blocks carry more text than the three steps, so they need the room - and the page keeps one
+            way of dividing blocks rather than gaining a second one. */}
+        <div className="grid gap-px overflow-hidden rounded-panel bg-rule sm:grid-cols-2">
+          {HOME_SECTIONS.map((point) => (
+            <div key={point.title} className="flex flex-col gap-2 bg-paper p-5">
+              <h3 className="text-body font-medium text-ink">{point.title}</h3>
+              <p className="text-body leading-6 text-ink-muted">{point.body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* The closing line: the page's intent, said once. It is not the fixed line - the shell renders that
+          on every screen, and this page does not restate it. */}
+      <p className="border-t border-rule pt-6 font-serif text-question leading-7 text-ink">{HOME_CLOSING}</p>
       </Screen>
     </PaperPage>
   );

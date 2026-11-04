@@ -129,6 +129,25 @@ alter table public.sessions        enable row level security;
 alter table public.cards           enable row level security;
 alter table public.journal_entries enable row level security;
 
+-- ---------------------------------------------------------------------------
+-- Table privileges. The policies above decide WHICH rows a user may touch; the
+-- grants below decide whether the role may touch the table at all. Supabase's
+-- default privileges normally supply them, but that is a project setting rather
+-- than part of this schema - so the migration states them, and a database built
+-- from this file alone behaves exactly like one whose defaults happened to apply.
+-- Without them the application's own read gets "permission denied for table
+-- cards" (HTTP 403) and the journal reports that it could not be loaded, even
+-- though every policy above is correct.
+--
+-- Least privilege, and the same posture as 002's function grant: `authenticated`
+-- only, and nothing to `anon`, which keeps the default deny. RLS is still the
+-- authority - these grants widen no row and reveal no row to anyone.
+-- ---------------------------------------------------------------------------
+grant select, insert, update, delete on public.profiles        to authenticated;
+grant select, insert, update, delete on public.sessions        to authenticated;
+grant select, insert, update, delete on public.cards           to authenticated;
+grant select, insert, update, delete on public.journal_entries to authenticated;
+
 -- profiles: the row belongs to the user it describes. WITH CHECK is written out on
 -- every UPDATE policy so the expression guarding new rows cannot drift when the
 -- USING expression is edited later.

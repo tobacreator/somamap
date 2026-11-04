@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { fallbackGuide, guideChoicesFor, guideFromReply } from "./guide.ts";
+import { fallbackGuide, guideChoicesFor, guideFromReply, guidePromptFor } from "./guide.ts";
 import { interviewStep, type InterviewDeps } from "./interview.ts";
 import { mockAdapter, type ModelAdapter } from "./models.ts";
-import { questionById } from "./questionBank.ts";
+import { COMPARISON_QUESTION_ID, QUESTION_BANK, questionById } from "./questionBank.ts";
 import { vocabularyFor } from "./vocabulary.ts";
 
 /**
@@ -59,11 +59,14 @@ describe("the guided turn's reply", () => {
     );
 
     assert.equal(guide.questionId, "Q12");
+    // The reply was used. The words offered are the question's own reviewed list, and both of the model's
+    // words are already in it - so it adds nothing, and nothing is lost either (`ISS-28`).
     assert.equal(guide.source, "model");
-    assert.deepEqual(guide.options, [
-      { word: "softer", meaning: "less strong than it was" },
-      { word: "clearer", meaning: "easier to notice than before" },
-    ]);
+    assert.deepEqual(guide.options, vocabularyFor("Q12"));
+    assert.deepEqual(
+      guide.options.map((option) => option.word),
+      ["the same", "clearer", "softer"],
+    );
     // The wording is the bank's, never the model's: `questionById` is the only source of a question.
     assert.equal(questionById(guide.questionId)?.id, "Q12");
   });
@@ -94,22 +97,99 @@ describe("the guided turn's reply", () => {
     );
 
     assert.equal(guide.source, "model");
+    // The question's own reviewed words stand, and nothing unusable is added to them: the sentence is not
+    // shown, the prohibited word is not shown, and no word appears twice (`ISS-28`).
     assert.deepEqual(
       guide.options.map((option) => option.word),
-      ["tight", "smooth"],
-      "the repeat and the sentence are dropped, not repaired",
+      ["smooth", "rough", "tight", "loose"],
+      "the reviewed words for the question, and nothing unusable on top",
     );
   });
 
-  it("falls back to the reviewed vocabulary when too few options survive", () => {
+  it("keeps the reviewed vocabulary when the model's words add nothing", () => {
     const guide = guideFromReply(
       { question_id: "Q4", options: [{ word: "tight", meaning: "ok" }] },
       [],
       "Q4",
     );
 
-    assert.equal(guide.source, "fallback");
+    // The question the model chose stands; the words are the question's own reviewed list.
+    assert.equal(guide.questionId, "Q4");
+    assert.equal(guide.source, "model");
     assert.deepEqual(guide.options, vocabularyFor("Q4"));
+  });
+
+  it("adds the model's own words after the reviewed ones, without repeating either", () => {
+    // The live case this fixes: a model asked for words under the distribution question answered with
+    // texture words. They are still shown - they may be exactly the word someone wants - but they no
+    // longer displace the two words that answer the question.
+    const guide = guideFromReply(
+      {
+        question_id: "Q1",
+        options: [
+          { word: "taut", meaning: "stretched tight, like a rope pulled at both ends" },
+          { word: "in one spot", meaning: "it stays where it is" },
+          { word: "stiff", meaning: "hard to move or bend" },
+          { word: "spreading out", meaning: "it reaches beyond where it started" },
+        ],
+      },
+      [],
+      "Q1",
+    );
+
+    assert.deepEqual(
+      guide.options.map((option) => option.word),
+      ["in one spot", "spreading out", "taut", "stiff"],
+      "the reviewed words first, then what the model added, each once",
+    );
+    assert.equal(guide.source, "model");
+  });
+
+  it("never drops a reviewed word to make room for a model's", () => {
+    // The colour question offers the general list - eight words - so there is no room for extras, and the
+    // reviewed list is what the person sees.
+    const guide = guideFromReply(
+      {
+        question_id: "Q9",
+        options: [
+          { word: "amber", meaning: "a warm orange, like honey" },
+          { word: "grey", meaning: "neither light nor dark" },
+        ],
+      },
+      [],
+      "Q9",
+    );
+
+    assert.deepEqual(guide.options, vocabularyFor("Q9"));
+    assert.equal(guide.options.length, 8);
+  });
+
+  it("carries the candidate questions with the wording they would be asked in", () => {
+    const prompt = guidePromptFor({
+      regionLabel: "shoulder",
+      description: "tight",
+      answers: [],
+      asked: [],
+      choices: ["Q1", "Q4"],
+    });
+    const parsed = JSON.parse(prompt) as { choose_one_of?: { id?: string; question?: string }[] };
+
+    assert.deepEqual(
+      parsed.choose_one_of,
+      [
+        { id: "Q1", question: questionById("Q1")?.text },
+        { id: "Q4", question: questionById("Q4")?.text },
+      ],
+      "the wording is the bank's, so the model can write words for the question it picks",
+    );
+    // The prompt still carries the person's own material and nothing else.
+    assert.deepEqual(Object.keys(parsed).sort(), [
+      "already_asked",
+      "answers",
+      "choose_one_of",
+      "description",
+      "region",
+    ]);
   });
 
   it("falls back whole when the reply is not the strict shape", () => {
@@ -162,7 +242,7 @@ describe("the guided turn's reply", () => {
  * machinery is what a live build drives.
  */
 describe("the interview with a guide", () => {
-  it("asks the question the model chose, and offers the words it wrote", async () => {
+  it("asks the question the model chose, and offers the question's own reviewed words for it", async () => {
     const result = await interviewStep(
       {
         answers: [],
@@ -248,3 +328,72 @@ describe("the interview with a guide", () => {
     assert.equal(result.source, "fallback");
   });
 });
+
+/**
+ * Coverage of the comparison question (`ISS-28`).
+ *
+ * The card's `intensity_metaphor` row can only be filled by an answer that is genuinely a comparison, and
+ * the question that invites one is `COMPARISON_QUESTION_ID`. `ISS-02` put that question in the reviewed
+ * sequence; the guided choice was still free to skip it, so a live session could end with a row the person
+ * was never invited to fill. These tests hold the rule where the choice is actually made.
+ */
+describe("the comparison question's coverage", () => {
+  it("offers the whole bank while asking turns remain", () => {
+    assert.deepEqual(
+      guideChoicesFor([], 2),
+      QUESTION_BANK.map((question) => question.id),
+    );
+    assert.deepEqual(
+      guideChoicesFor(["Q1"], 1),
+      QUESTION_BANK.map((question) => question.id).filter((id) => id !== "Q1"),
+    );
+  });
+
+  it("offers only the comparison question on the session's last turn, when it has not been asked", () => {
+    assert.deepEqual(guideChoicesFor(["Q1", "Q2"], 0), [COMPARISON_QUESTION_ID]);
+    assert.deepEqual(guideChoicesFor([], 0), [COMPARISON_QUESTION_ID]);
+  });
+
+  it("leaves the last turn free once the comparison question has been asked", () => {
+    const choices = guideChoicesFor(["Q1", COMPARISON_QUESTION_ID], 0);
+
+    assert.equal(choices.includes(COMPARISON_QUESTION_ID), false, "an asked question is not offered again");
+    assert.ok(choices.length > 1, "the session is not restricted when the row can already be filled");
+  });
+
+  it("refuses an id the prompt did not offer, and falls back to the sequence's own question", () => {
+    const guide = guideFromReply(
+      {
+        question_id: "Q3",
+        options: [
+          { word: "steady", meaning: "the same the whole time" },
+          { word: "in waves", meaning: "it builds and eases" },
+        ],
+      },
+      ["Q1", "Q2"],
+      COMPARISON_QUESTION_ID,
+      [COMPARISON_QUESTION_ID],
+    );
+
+    assert.equal(guide.questionId, COMPARISON_QUESTION_ID, "the offered id stands in for the unoffered one");
+    assert.equal(guide.source, "fallback");
+  });
+
+  it("still takes any reviewed, unasked id when the caller passes no restriction", () => {
+    // The pre-`ISS-28` shape: a caller that does not know how many turns remain keeps rule 1 alone.
+    const guide = guideFromReply(
+      {
+        question_id: "Q3",
+        options: [
+          { word: "steady", meaning: "the same the whole time" },
+          { word: "in waves", meaning: "it builds and eases" },
+        ],
+      },
+      ["Q1"],
+      "Q4",
+    );
+
+    assert.equal(guide.questionId, "Q3");
+  });
+});
+

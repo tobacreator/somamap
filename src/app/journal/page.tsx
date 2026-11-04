@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
+import AnonJournal from "@/components/AnonJournal";
 import JournalCards from "@/components/JournalCards";
 import Panel from "@/components/Panel";
 import PaperPage from "@/components/PaperPage";
@@ -50,9 +50,18 @@ async function JournalBody() {
    * allow-list in `src/lib/signInDestination.ts` is what decides, so an edited query string cannot turn
    * the sign-in screen into a redirect anywhere else.
    */
+  /**
+   * A visitor with no session is **not** sent away any more (`ISS-28`).
+   *
+   * The journal used to redirect to sign-in, which meant the product's own record of a person's words was
+   * locked behind an account. Now the visitor gets the journal they actually have - the cards this browser
+   * tab is holding - together with the plain statement that it is temporary and the way to keep it. The
+   * persistent journal is unchanged: `listJournalCards` below is still only reached with a verified
+   * session, it still reads as the user under RLS, and nothing here writes anything.
+   */
   const session = await currentSession();
 
-  if (!session) redirect("/sign-in?next=%2Fjournal");
+  if (!session) return <AnonJournal signedIn={false} />;
 
   const resolution = supabaseTarget();
 
@@ -84,14 +93,26 @@ async function JournalBody() {
 
   if (result.records.length === 0) {
     return (
-      <Panel>
-        <h2 className="text-lead font-medium text-ink">{JOURNAL_EMPTY_TITLE}</h2>
-        <p className="text-body leading-6 text-ink-muted">{JOURNAL_EMPTY_BODY}</p>
-      </Panel>
+      <>
+        {/* A signed-in visitor may still be holding in-session cards from before they signed in. */}
+        <AnonJournal signedIn />
+
+        <Panel>
+          <h2 className="text-lead font-medium text-ink">{JOURNAL_EMPTY_TITLE}</h2>
+          <p className="text-body leading-6 text-ink-muted">{JOURNAL_EMPTY_BODY}</p>
+        </Panel>
+      </>
     );
   }
 
-  return <JournalCards records={result.records} />;
+  return (
+    <>
+      {/* Offered before the list, because it is an action on the cards this tab is holding (`ISS-28`). */}
+      <AnonJournal signedIn />
+
+      <JournalCards records={result.records} />
+    </>
+  );
 }
 
 export default function JournalPage() {
