@@ -13200,3 +13200,44 @@ is shown back **verbatim** under their own label - not a summary, not a comment,
 - **No animation dependency was added**, and none is needed: the layer is one `@theme` block, two keyframes
   and three classes in `globals.css`.
 
+---
+
+## Entry 61 - 2026-11-04 19:53 (+01:00) - The release candidate is published, deployed, and its live path was verified rather than assumed (`ISS-28` follow-up, the submission blockers)
+
+**What was asked.** Enable and verify real inference, verify Supabase and authentication, deploy to the
+intended public URL, publish the repository as open source, make the documentation complete and honest, run
+the checks, and report blockers instead of inventing access.
+
+**What was done, in order.**
+
+| # | action | result |
+|---|---|---|
+| 1 | `MODEL_MODE=live` appended to `.env.local`, existing `BASETEN_API_KEY` preserved | `names=BASETEN_API_KEY,MODEL_MODE`; no value printed, and `.env.local` is gitignored and untracked |
+| 2 | One guided turn driven through the application's own `interviewStep` + `basetenAdapter` with an observed transport | **HTTP 401** from `inference.baseten.co`; `GET /v1/models` with the same credential: `502`. See `ISSUES-AND-BLOCKERS.md` §12 B1 |
+| 3 | The same turn's fail-closed path | `provider-unavailable` -> reviewed fallback card, `source: "fallback"`, 2 reviewed options, turn completed, one content-free record. The credential was refused; the product was not |
+| 4 | A live card that had to use reviewed wording now says so (`CARD_FROM_REVIEWED_WORDING` in `copy.ts`, rendered in `InterviewChat` when `flow.usedFallback && mode === "live"`) | a refused provider can no longer be mistaken for a working one; mock mode never shows the line, because mock wording never fails validation |
+| 5 | `README.md` replaced (it was still the `create-next-app` scaffold, 36 lines) with the real one: what the product does and does not do, the two hackathon ideas, architecture, the AI integration and what is never sent, every environment variable name with no values, local setup, testing, deployment, consent and data handling, the five safety boundaries, known limitations, and provider attribution | 175 lines, no secret, no compliance claim that has not been verified |
+| 6 | `LICENSE` added | MIT |
+| 7 | Secret hygiene over the tracked tree and **all** history | no `.env` file ever tracked except `.env.example`; no key-shaped string in the tracked tree (the single JWT-shaped hit is a `package-lock.json` integrity hash); the five commits that ever mention `BASETEN_API_KEY`/`SERVICE_ROLE` contain **zero** values longer than a placeholder |
+| 8 | Gates | `tsc --noEmit` exit **0**; `lint` **0 errors**, 2 pre-existing harness warnings; `npm test` **red team 8/8 PASS, exit 0** plus the unit suite; `npm run build` **success**, 16 routes |
+| 9 | Committed `2c4665e` (27 files) and pushed | `release/somamap-mvp-candidate` updated `121bbdb..2c4665e`, and `main` fast-forwarded `18be85f..2c4665e` - history preserved, no force, no rewrite |
+| 10 | GitHub | anonymous `GET https://github.com/tobacreator/somamap` -> **200, public** |
+| 11 | Vercel | the commit's status is `Vercel: success`; public production URL `https://somamap-git-main-toba-falades-projects.vercel.app` serves the release (the disclaimer fingerprint is present, and `/journal` answers `200` with no redirect for a signed-out visitor - the `ISS-28` behaviour) |
+| 12 | Deployed smoke test | `POST /api/interview` -> `200 {"status":"asking"}` with bank question `Q1` and its two reviewed options |
+
+**What the deployment does not have, and why it is not a code defect.** The Vercel environment's own
+`/checkin` payload reports `{"mode":"mock"}`, and its `POST /api/auth/sign-in` answers
+`500 {"error":"not configured","reason":"missing-configuration"}`. The release is therefore deployed and
+working, but it is serving **mock** wording and has **no** accounts or saved journal, because the Vercel
+project has none of the four variables this workspace also lacks. See `ISSUES-AND-BLOCKERS.md` §12 B2.
+
+**What was deliberately not done.** No credential was invented, no `.env.local` was committed, no RLS policy,
+authentication check, consent gate, crisis screen or schema validation was weakened, no provider terms were
+restated, no compliance claim was fabricated, and no cosmetic change was made. Two untracked scratch text
+files in the workspace were left untracked and unpublished rather than committed.
+
+**Honest position at the end of this entry.** The release candidate is public, licensed, documented, pushed,
+deployed and smoke-tested; the anonymous journey works on the public URL; live inference and the account
+journey are **not** verified, for the two external reasons above, and the report says so in those words.
+
+

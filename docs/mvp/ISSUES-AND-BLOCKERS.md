@@ -154,6 +154,35 @@ requests, capped a body, or limited how much text one request could carry.
 
 ---
 
+## 12. The two submission blockers, found by verifying the live path rather than assuming it (P0, OPEN, 2026-11-04)
+
+Both were found in the last hour of the submission window, by driving the application's own code against the
+real provider and by reading the deployed environment's own answers. Neither is a defect in the product: each
+is a missing external configuration that only the owner's accounts can supply. Nothing was invented, nothing
+was faked, and no protection was weakened to make a check pass.
+
+**B1 - the Baseten credential is refused (HTTP 401), so live inference cannot be verified.** The same probe
+that returned `200` in `ISS-26` now returns `401` for one chat-completions request to
+`inference.baseten.co` with model `meta-models/muse-spark-open-1026`; a metadata `GET /v1/models` with the same
+credential answers `502`. The application behaved correctly: the refusal became `provider-unavailable`, the
+reviewed fallback card was produced (`source: "fallback"`), the turn completed, and nothing was logged but a
+content-free category. This matches the account note that the provider account was still awaiting approval.
+**What must happen:** a working credential for the configured model, or the model identifier the provider
+actually issued, must be supplied. Until then no honest claim of live inference can be made.
+
+**B2 - the deployed environment runs mock, and has no Supabase configuration.** `MODEL_MODE` is set to `live`
+in `.env.local` in this workspace, and that is committed nowhere (it is gitignored, correctly). The
+deployment on Vercel is a separate environment: its own `/checkin` payload reports `{"mode":"mock"}`, so the
+public URL words every card from SomaMap's reviewed copy and makes no external request. Separately,
+`POST /api/auth/sign-in` on the public URL answers `500 {"error":"not configured","reason":"missing-configuration"}`,
+so accounts, the saved journal and the anonymous-to-account transfer cannot work there either.
+**What must happen:** the Vercel project needs `MODEL_MODE=live`, `BASETEN_API_KEY`, and
+`NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` set for the production environment, then a
+redeploy. Both the deployed build and the deployed route were verified working otherwise: `/journal` serves
+`200` with no redirect for a signed-out visitor, and `POST /api/interview` answers `200 {"status":"asking"}`
+with bank question `Q1` and its two reviewed options.
+
+
 ## 2. The blockers in detail
 
 ### ISS-01 · P0 · The root route still renders the Next.js scaffold
