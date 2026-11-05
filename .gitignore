@@ -42,3 +42,6 @@ yarn-error.log*
 next-env.d.ts
 # The demo recording stays in the working copy: 5.4 MB, and the submission needs it on a video host.
 demo/somamap-demo.webm
+demo/somamap-demo.mp4
+demo/somamap-demo-narration-cues.mp4
+demo/voiceover.*
