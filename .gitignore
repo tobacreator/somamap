@@ -40,3 +40,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# The demo recording stays in the working copy: 5.4 MB, and the submission needs it on a video host.
+demo/somamap-demo.webm

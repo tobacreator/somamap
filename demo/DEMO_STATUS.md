@@ -95,7 +95,41 @@ length as a rule; do treat it as a good length for a judge's attention.
 | Status, requirements, submission description | this file | complete |
 | Working production app | `https://somamap-ebon.vercel.app` | verified |
 | Public source repository | `https://github.com/tobacreator/somamap` | public, MIT |
-| Demo video | — | **not created** |
+| Demo video (silent screen recording) | `demo/somamap-demo.webm` — **1:27.56, VP9, 1280×800, 25 fps, 5.4 MB** | **created and verified** |
+| Voiceover timings for that recording | `demo/VOICEOVER_GUIDE.md` | complete |
+| The script that produced it | `demo/record-demo.mjs` | complete |
+| Stills captured during the run | `demo/recordings/shots/` (10 PNGs) | complete |
+| Evidence of what the run did | `demo/recordings/run-log.txt` | complete |
+
+## 5a. The recording that exists, and how it was made
+
+`demo/somamap-demo.webm` is a **real, silent recording of the production app**, made with Playwright driving
+Chromium against `https://somamap-ebon.vercel.app`. It is a **guest journey**: no account, no sign-in, no
+credential typed, and no database row touched — a guest check-in keeps its card in the browser tab's own
+storage, which is the product's own design.
+
+The recorded journey: landing → check-in → "head" tapped on the body map → the description typed → the
+disclosure acknowledged → three questions, each chosen by the live model, with the **comparison question
+("What does it remind you of?") as question 3 of 3** → the sensation card → the guest journal showing
+"1 saved card", the word counts and "Places you named: head".
+
+Verified by inspecting frames taken **from the video itself**, not only from the run's stills: the card shows
+the person's sentence as the hero, the four chosen words, "head", "a tight knot", no "How long" row (it is
+empty and deliberately hidden), and the guest note *"It is not saved anywhere else, and it goes when the tab
+closes. Sign in to keep it."* No credentials, no browser chrome, no developer tools and no error appear
+anywhere in it.
+
+To reproduce or re-record it:
+
+```
+npm install --no-save playwright
+npx playwright install chromium
+node demo/record-demo.mjs
+```
+
+The video is deliberately **not committed** (5.4 MB, and the submission needs it on a video host anyway); it
+stays at `demo/somamap-demo.webm` in the working copy, with the stills and the run log committed beside it.
+
 
 ## 6. Recording the video — the smallest possible steps
 

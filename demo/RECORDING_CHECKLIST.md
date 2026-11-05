@@ -1,5 +1,10 @@
 # SomaMap — recording checklist
 
+**A recording already exists:** `demo/somamap-demo.webm` (1:27.56, silent, made by `demo/record-demo.mjs`
+against the production app). If it is good enough, skip to section 6 and use
+`demo/VOICEOVER_GUIDE.md` for the timings. Everything below is for recording your own version, with your own
+narration, in a browser you control.
+
 Work down this list in order. Nothing here requires access to Vercel or Supabase.
 
 ## 1. Before you start (5 minutes)

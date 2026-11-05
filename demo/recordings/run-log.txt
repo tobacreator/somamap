@@ -1,0 +1,32 @@
+2026-11-04T23:51:28.965Z landing page loaded: https://somamap-ebon.vercel.app
+2026-11-04T23:51:29.047Z screenshot demo/recordings/shots/01-landing.png
+2026-11-04T23:51:36.083Z check-in opened as a guest
+2026-11-04T23:51:36.145Z screenshot demo/recordings/shots/02-checkin.png
+2026-11-04T23:51:38.688Z region named: head
+2026-11-04T23:51:40.211Z description typed
+2026-11-04T23:51:40.263Z screenshot demo/recordings/shots/03-description.png
+2026-11-04T23:51:44.021Z disclosure shown
+2026-11-04T23:51:44.051Z screenshot demo/recordings/shots/04-disclosure.png
+2026-11-04T23:51:47.589Z acknowledged external processing
+2026-11-04T23:51:56.718Z question 1 of 3 on screen
+2026-11-04T23:51:56.759Z screenshot demo/recordings/shots/05-question-1.png
+2026-11-04T23:52:00.304Z question 1: opened the word suggestions
+2026-11-04T23:52:00.333Z question 1: tapped the offered word (Add in one spot to your answer)
+2026-11-04T23:52:01.869Z answered question 1
+2026-11-04T23:52:14.979Z question 2 of 3 on screen
+2026-11-04T23:52:15.023Z screenshot demo/recordings/shots/06-question-2.png
+2026-11-04T23:52:18.557Z question 2: opened the word suggestions
+2026-11-04T23:52:18.566Z question 2: typed an answer, because no words were offered
+2026-11-04T23:52:20.100Z answered question 2
+2026-11-04T23:52:27.155Z question 3 of 3 on screen
+2026-11-04T23:52:27.203Z screenshot demo/recordings/shots/07-question-3.png
+2026-11-04T23:52:30.764Z question 3: opened the word suggestions
+2026-11-04T23:52:30.780Z question 3: tapped the offered word (Add a tight knot to your answer)
+2026-11-04T23:52:32.317Z answered question 3
+2026-11-04T23:52:38.359Z card generated
+2026-11-04T23:52:38.396Z screenshot demo/recordings/shots/08-card.png
+2026-11-04T23:52:46.028Z guest journal on screen
+2026-11-04T23:52:46.056Z screenshot demo/recordings/shots/09-journal-guest.png
+2026-11-04T23:52:52.603Z screenshot demo/recordings/shots/10-journal-guest-scrolled.png
+2026-11-04T23:52:54.117Z journey complete
+2026-11-04T23:52:54.423Z recording saved: demo/somamap-demo.webm
